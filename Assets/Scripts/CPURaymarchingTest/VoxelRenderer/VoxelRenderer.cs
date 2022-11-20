@@ -26,6 +26,8 @@ public class VoxelRenderer : MonoBehaviour
 
     NativeArray<float4> pixels;
 
+    //public static NativeHashMap<int3>
+
     void Start()
     {
         ticks = 0;
