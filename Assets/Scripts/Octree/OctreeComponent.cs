@@ -8,11 +8,11 @@ using Unity.Mathematics;
 public class OctreeComponent : MonoBehaviour
 {
     [SerializeField]
-    int nodeMinSize = 1;
+    float nodeMinSize = 1;
 
     Octree octree;
 
-    public static int MIN_SIZE;
+    public static float MIN_SIZE;
 
     void Start()
     {
@@ -56,7 +56,7 @@ public class OctreeComponent : MonoBehaviour
         {
             foreach(Collider go in objects)
             {
-                rootNode.AddObject(go.bounds.center, go.bounds.size.y);
+                rootNode.AddObject(go.bounds.center, go.bounds.size.x);
             }
         }
     }
@@ -109,7 +109,7 @@ public class OctreeComponent : MonoBehaviour
 
         private void DivideAndAdd(float3 center, float size)
         {
-            if (size <= MIN_SIZE)
+            if (bounds.size <= MIN_SIZE)
             {
                 return;
             }
@@ -128,6 +128,7 @@ public class OctreeComponent : MonoBehaviour
                 {
                     dividing = true;
                     children[i].DivideAndAdd(b.center, b.size);
+                    Debug.Log("Dividing");
                 }
             }
             if (!dividing)
@@ -153,8 +154,11 @@ public class OctreeComponent : MonoBehaviour
 
         public void Draw()
         {
+            Gizmos.color = new Color(0, 1, 0, 0.1f);
+            Gizmos.DrawCube(bounds.center, Vector3.one * bounds.size);
             Gizmos.color = Color.green;
             Gizmos.DrawWireCube(bounds.center, Vector3.one * bounds.size);
+
             if (children != null)
             {
                 foreach(var child in children)
