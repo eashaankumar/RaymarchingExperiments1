@@ -553,8 +553,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b1acddd42463a6543ba10ffe67bb4332, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  renderTicks: 2
-  resolution: 0.429
+  renderTicks: 1
+  resolution: 0.237
   maxRenderDist: 500
   maxVoxStepCount: 100
   sandColor: {r: 1, g: 0.5469046, b: 0, a: 1}

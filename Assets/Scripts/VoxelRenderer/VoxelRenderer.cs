@@ -11,7 +11,7 @@ using System.Runtime.CompilerServices;
 public class VoxelRenderer : MonoBehaviour
 {
     [Header("Rendering Engine")]
-    [SerializeField, Tooltip("# of ticks between each render call (for updating destination render texture)")]
+    [SerializeField, Tooltip("# of ticks between each render call (for updating destination render texture); also the number of frames system gets to update voxel world")]
     int renderTicks;
     [SerializeField, Tooltip("Resolution"), Range(0f, 1f)]
     float resolution;
@@ -33,11 +33,19 @@ public class VoxelRenderer : MonoBehaviour
     int width, height;
 
     float4[] pixels;
+    NativeArray<float4> pixelsArr;
 
     float4x4 CamToWorld, CamInvProj;
 
     public static VoxelRenderer Instamce;
 
+    JobHandle renderHandle;
+
+    bool renderInProgess;
+    public bool RenderInProgress
+    {
+        get { return renderInProgess; }
+    }
 
     private void Awake()
     {
@@ -51,6 +59,7 @@ public class VoxelRenderer : MonoBehaviour
         cam = Camera.main;
         sun = FindObjectOfType<Light>();
         FillDensity();
+        Render();
     }
 
     private void OnDestroy()
@@ -75,7 +84,25 @@ public class VoxelRenderer : MonoBehaviour
         if (ticks > renderTicks)
         {
             ticks = 0;
-            Render();
+
+            if (!renderInProgess)
+            {
+                Render();
+            }
+
+            if (renderHandle.IsCompleted && pixelsArr.IsCreated && renderInProgess) 
+            {
+                renderHandle.Complete();
+                renderInProgess = false;
+                pixels = pixelsArr.ToArray();
+                pixelsArr.Dispose();
+
+                tex.SetPixelData<float4>(pixels, 0);
+                tex.Apply();
+            }
+            else
+            {
+            }
         }
     }
 
@@ -94,6 +121,8 @@ public class VoxelRenderer : MonoBehaviour
 
         CamInvProj = cam.projectionMatrix.inverse;
         CamToWorld = cam.cameraToWorldMatrix;
+
+        pixelsArr = new NativeArray<float4>(pixels, Allocator.TempJob);
     }
 
     private void Render()
@@ -101,8 +130,6 @@ public class VoxelRenderer : MonoBehaviour
         Init();
 
         renderOdds = !renderOdds;
-
-        NativeArray<float4> pixelsArr = new NativeArray<float4>(pixels, Allocator.TempJob);
 
         RenderJob job = new RenderJob()
         {
@@ -120,15 +147,9 @@ public class VoxelRenderer : MonoBehaviour
             dirtColor = new float4(dirtColor.r, dirtColor.g, dirtColor.b, dirtColor.a),
             waterColor = new float4(waterColor.r, waterColor.g, waterColor.b, waterColor.a)
         };
-        JobHandle handle = job.Schedule(pixels.Length, 64);
-        handle.Complete();
-
-        pixels = pixelsArr.ToArray();
-        pixelsArr.Dispose();
-
-        tex.SetPixelData<float4>(pixels, 0);
-        tex.Apply();
-
+        renderInProgess = true;
+        renderHandle = job.Schedule(pixels.Length, 64);
+        //renderHandle.Complete();
     }
 
     void OnRenderImage(RenderTexture source, RenderTexture destination)
