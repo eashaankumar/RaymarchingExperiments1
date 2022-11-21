@@ -315,7 +315,7 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 45.55
+  m_fontSize: 30.7
   m_fontSizeBase: 36
   m_fontWeight: 400
   m_enableAutoSizing: 1
@@ -540,7 +540,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   renderTicks: 1
-  resolution: 0.509
+  resolution: 0.318
   maxRenderDist: 500
 --- !u!114 &1399788336
 MonoBehaviour:
