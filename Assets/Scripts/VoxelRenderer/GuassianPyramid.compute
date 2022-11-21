@@ -1,0 +1,57 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel Blur
+#pragma kernel Upsample
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+
+RWTexture2D<float4> _Source;
+RWTexture2D<float4> _Result;
+
+int _kernelSize;
+float _std;
+
+static const float PI = 3.1415925;
+static const int2 RIGHT = int2(1, 0);
+static const int2 UP = int2(0, 1);
+
+float gaussian(int2 p, float std)
+{
+    return 1 / (2 * PI * std * std) * exp(-(p.x * p.x + p.y * p.y) / (2 * std * std));
+}
+
+[numthreads(8,8,1)]
+void Blur (uint3 id : SV_DispatchThreadID)
+{
+    // TODO: insert actual code here!
+    float4 sum = float4(0,0,0,0);
+    for (int x = -_kernelSize / 2; x <= _kernelSize / 2; x++)
+    {
+        for (int y = -_kernelSize / 2; y <= _kernelSize / 2; y++)
+        {
+            int2 offset = int2(x, y);
+            int2 uv = id.xy + offset;
+            sum += _Result[uv] * gaussian(offset, _std);
+        }
+    }
+    _Result[id.xy] = sum;
+}
+
+[numthreads(8, 8, 1)]
+void Upsample(uint3 id : SV_DispatchThreadID)
+{
+    // id = uvs in smaller image
+    _Result[id.xy * 2] = _Source[id.xy];
+    _Result[id.xy * 2 + RIGHT] = (_Source[id.xy] + _Source[id.xy + RIGHT])/2;
+    _Result[id.xy * 2 + UP] = (_Source[id.xy] + _Source[id.xy + UP]) / 2;
+
+    //_Result[id.xy * 2 - RIGHT] = (_Source[id.xy] + _Source[id.xy - RIGHT]) / 2;
+    //_Result[id.xy * 2 - UP] = (_Source[id.xy] + _Source[id.xy - UP]) / 2;
+
+
+    _Result[id.xy * 2 + RIGHT + UP] = (_Source[id.xy] + _Source[id.xy + RIGHT + UP]) / 2;
+    //_Result[id.xy * 2 + RIGHT - UP] = (_Source[id.xy] + _Source[id.xy + RIGHT - UP]) / 2;
+    //_Result[id.xy * 2 - RIGHT + UP] = (_Source[id.xy] + _Source[id.xy - RIGHT + UP]) / 2;
+    //_Result[id.xy * 2 - RIGHT - UP] = (_Source[id.xy] + _Source[id.xy - RIGHT - UP]) / 2;
+
+}

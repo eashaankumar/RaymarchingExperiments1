@@ -315,7 +315,7 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 30.7
+  m_fontSize: 45.6
   m_fontSizeBase: 36
   m_fontWeight: 400
   m_enableAutoSizing: 1
@@ -554,9 +554,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   renderTicks: 1
-  resolution: 0.237
+  downsamples: 2
   maxRenderDist: 500
   maxVoxStepCount: 100
+  gaussianPyramidShader: {fileID: 7200000, guid: c3e7927853acc294c8bc440ad41a5853, type: 3}
+  blurSize: 2
+  std: 1
   sandColor: {r: 1, g: 0.5469046, b: 0, a: 1}
   dirtColor: {r: 0.5471698, g: 0.16577443, b: 0, a: 1}
   waterColor: {r: 0, g: 0.75454235, b: 1, a: 1}
@@ -758,6 +761,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: af9fe0f17be99174cb8e4748d247e465, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  updateRequestsProcessCount: 10
 --- !u!4 &1757045251
 Transform:
   m_ObjectHideFlags: 0

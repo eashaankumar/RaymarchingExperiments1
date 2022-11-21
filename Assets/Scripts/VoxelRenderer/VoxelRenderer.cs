@@ -13,20 +13,28 @@ public class VoxelRenderer : MonoBehaviour
     [Header("Rendering Engine")]
     [SerializeField, Tooltip("# of ticks between each render call (for updating destination render texture); also the number of frames system gets to update voxel world")]
     int renderTicks;
-    [SerializeField, Tooltip("Resolution"), Range(0f, 1f)]
-    float resolution;
+    [SerializeField, Tooltip("# of resolution divisions by 2")]
+    int downsamples;
     [SerializeField]
     float maxRenderDist;
     [SerializeField]
     int maxVoxStepCount;
+    [SerializeField]
+    ComputeShader gaussianPyramidShader;
+    [SerializeField]
+    int blurSize;
+    [SerializeField]
+    float std;
 
     [Header("Materials")]
     [SerializeField]
     Color sandColor, dirtColor, waterColor;
 
+    int blurKernel, upsampleKernel;
     int ticks;
 
     Texture2D tex;
+    RenderTexture[] pyramid;
     Camera cam;
     Light sun;
 
@@ -37,7 +45,7 @@ public class VoxelRenderer : MonoBehaviour
 
     float4x4 CamToWorld, CamInvProj;
 
-    public static VoxelRenderer Instamce;
+    public static VoxelRenderer Instance;
 
     JobHandle renderHandle;
 
@@ -49,7 +57,7 @@ public class VoxelRenderer : MonoBehaviour
 
     private void Awake()
     {
-        Instamce = this;    
+        Instance = this;    
     }
 
     void Start()
@@ -58,24 +66,15 @@ public class VoxelRenderer : MonoBehaviour
 
         cam = Camera.main;
         sun = FindObjectOfType<Light>();
-        FillDensity();
-        Render();
+
+        blurKernel = gaussianPyramidShader.FindKernel("Blur");
+        upsampleKernel = gaussianPyramidShader.FindKernel("Upsample");
+
+        StartRender();
     }
 
     private void OnDestroy()
     {
-    }
-
-    void FillDensity()
-    {
-        /*int densityKernel = voxelShader.FindKernel("DensityKernel");
-
-        Init();
-        InitRenderTexture();
-        SetParameters(densityKernel);
-
-        int threadGroupsSize = Mathf.CeilToInt(1000 / 8.0f);
-        voxelShader.Dispatch(densityKernel, threadGroupsSize, threadGroupsSize, threadGroupsSize);*/
     }
 
     private void Update()
@@ -87,18 +86,12 @@ public class VoxelRenderer : MonoBehaviour
 
             if (!renderInProgess)
             {
-                Render();
+                StartRender();
             }
 
             if (renderHandle.IsCompleted && pixelsArr.IsCreated && renderInProgess) 
             {
-                renderHandle.Complete();
-                renderInProgess = false;
-                pixels = pixelsArr.ToArray();
-                pixelsArr.Dispose();
-
-                tex.SetPixelData<float4>(pixels, 0);
-                tex.Apply();
+                FinishRender();
             }
             else
             {
@@ -108,13 +101,22 @@ public class VoxelRenderer : MonoBehaviour
 
     void Init()
     {
-        width = (int)(cam.pixelWidth * resolution);
-        height = (int)(cam.pixelHeight * resolution);
+        width = (int)(cam.pixelWidth / Mathf.Pow(2,downsamples));
+        height = (int)(cam.pixelHeight / Mathf.Pow(2, downsamples));
 
         if (tex == null)
         {
             tex = new Texture2D(width, height, TextureFormat.RGBAFloat, false);
             tex.filterMode = FilterMode.Trilinear;
+        }
+
+        if (pyramid == null) 
+        { 
+            pyramid = new RenderTexture[downsamples + 1]; 
+            for(int i = 0; i < pyramid.Length; i++)
+            {
+                CreateTexture((int)(width * Mathf.Pow(2, i)), (int)(height * Mathf.Pow(2, i)), ref pyramid[i]);
+            }
         }
 
         if (pixels == null || pixels.Length != width * height) pixels = new float4[width * height];
@@ -125,11 +127,14 @@ public class VoxelRenderer : MonoBehaviour
         pixelsArr = new NativeArray<float4>(pixels, Allocator.TempJob);
     }
 
-    private void Render()
+    /// <summary>
+    /// Queues job for rendering to texture
+    /// </summary>
+    private void StartRender()
     {
         Init();
 
-        renderOdds = !renderOdds;
+        //renderOdds = !renderOdds;
 
         RenderJob job = new RenderJob()
         {
@@ -149,12 +154,57 @@ public class VoxelRenderer : MonoBehaviour
         };
         renderInProgess = true;
         renderHandle = job.Schedule(pixels.Length, 64);
-        //renderHandle.Complete();
+    }
+
+    /// <summary>
+    /// Prepares Render texture by upsampling
+    /// </summary>
+    void FinishRender()
+    {
+        renderHandle.Complete();
+        pixels = pixelsArr.ToArray();
+        pixelsArr.Dispose();
+        renderInProgess = false;
+
+        tex.SetPixelData<float4>(pixels, 0);
+        tex.Apply();
+
+
+
+        // gaussian pyramid
+        // copy
+        Graphics.Blit(tex, pyramid[0]);
+        // upsample
+        for (int i = 1; i < pyramid.Length; i++)
+        {
+            Debug.Assert(pyramid[i - 1].width == pyramid[i].width / 2);
+            gaussianPyramidShader.SetTexture(upsampleKernel, "_Source", pyramid[i - 1]);
+            gaussianPyramidShader.SetTexture(upsampleKernel, "_Result", pyramid[i]);
+            int numThreadsPerGroup = 8;
+            int numThreadGroupsX = Mathf.CeilToInt(pyramid[i - 1].width / numThreadsPerGroup);
+            int numThreadGroupsY = Mathf.CeilToInt(pyramid[i - 1].height / numThreadsPerGroup);
+            gaussianPyramidShader.Dispatch(upsampleKernel, numThreadGroupsX, numThreadGroupsY, 1);
+            // blur
+            //gaussianPyramidShader.SetTexture(blurKernel, "_Source", temp);
+            gaussianPyramidShader.SetTexture(blurKernel, "_Result", pyramid[i]);
+            gaussianPyramidShader.SetInt("_kernelSize", blurSize);
+            gaussianPyramidShader.SetFloat("_std", std);
+            numThreadGroupsX = Mathf.CeilToInt(pyramid[i].width / numThreadsPerGroup);
+            numThreadGroupsY = Mathf.CeilToInt(pyramid[i].height / numThreadsPerGroup);
+            gaussianPyramidShader.Dispatch(blurKernel, numThreadGroupsX, numThreadGroupsY, 1);
+        }
+    }
+
+    void CreateTexture(int width, int height, ref RenderTexture rt)
+    {
+        rt = new RenderTexture(width, height, 24);
+        rt.enableRandomWrite = true;
+        rt.Create();
     }
 
     void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
-        Graphics.Blit(tex, destination);
+        Graphics.Blit(pyramid[pyramid.Length-1], destination);
     }
 
     #region Jobs
@@ -182,14 +232,14 @@ public class VoxelRenderer : MonoBehaviour
         void IJobParallelFor.Execute(int index)
         {
             int2 uv = to2D(index);
-            if (!shouldRayMarch(new uint2(uv)))
+            /*if (!shouldRayMarch(new uint2(uv)))
             {
-                /*int leftI = math.clamp((index - 1), 0, pixels.Length - 1);
+                int leftI = math.clamp((index - 1), 0, pixels.Length - 1);
                 int rightI = math.clamp((index + 1), 0, pixels.Length - 1);
 
-                pixels[index] = (pixels[leftI] + pixels[rightI]) / 2f;*/
+                pixels[index] = (pixels[leftI] + pixels[rightI]);
                 return;
-            }
+            }*/
             float2 uvNorm = new float2(uv.x / (float)width, uv.y / (float)height);
 
             Ray ray = CreateCameraRay(uvNorm * 2 - 1);

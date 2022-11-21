@@ -6,6 +6,11 @@ using Unity.Collections;
 
 public class VoxelWorld : MonoBehaviour
 {
+
+    [Header("World update settings.\nAvailable frame = frame when VoxelRenderer is not rendering")]
+    [SerializeField, Tooltip("How many update requests are attempted to be processed per available frame")]
+    int updateRequestsProcessCount;
+
     public static VoxelWorld Instance;
 
     //CoroutineQueue worldUpdateActions;
@@ -40,14 +45,20 @@ public class VoxelWorld : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        if (!VoxelRenderer.Instamce.RenderInProgress && worldUpdateActions.Count > 0)
+        int processed = 0;
+        while (!VoxelRenderer.Instance.RenderInProgress && worldUpdateActions.Count > 0 && processed < updateRequestsProcessCount)
         {
             worldUpdateActions.Dequeue()();
+            processed++;
         }
-        int x = UnityEngine.Random.Range(-100, 100);
-        int y = UnityEngine.Random.Range(-100, 100);
-        int z = UnityEngine.Random.Range(-100, 100);
-        AddVoxel(new int3 ( x, y, z ), (VoxelType)UnityEngine.Random.Range(0, 3));
+
+        for (int i = 0; i < 5; i++)
+        {
+            int x = UnityEngine.Random.Range(-100, 100);
+            int y = UnityEngine.Random.Range(-100, 100);
+            int z = UnityEngine.Random.Range(-100, 100);
+            AddVoxel(new int3(x, y, z), (VoxelType)UnityEngine.Random.Range(0, 3));
+        }
     }
 
     #region World Update Methods
