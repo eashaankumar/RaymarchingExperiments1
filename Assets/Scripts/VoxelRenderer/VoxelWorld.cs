@@ -16,6 +16,14 @@ public class VoxelWorld : MonoBehaviour
     [Header("World settings")]
     [SerializeField]
     int worldBottom;
+    [SerializeField]
+    int worldLeft;
+    [SerializeField]
+    int worldRight;
+    [SerializeField]
+    int worldFront;
+    [SerializeField]
+    int worldBack;
 
     public static VoxelWorld Instance;
 
@@ -74,6 +82,145 @@ public class VoxelWorld : MonoBehaviour
         }
     }
 
+    #region Voxel Physics Logic
+    bool WaterPhysics(int3 pos)
+    {
+        VoxelType data = voxelData[pos];
+        if (!SandPhysics(pos))
+        {
+            // side
+            if (!voxelData.ContainsKey(pos - RIGHT) && pos.x > worldLeft)
+            {
+                voxelData.Remove(pos);
+                voxelData.TryAdd(pos - RIGHT, data);
+                UpdateVoxel(pos  - RIGHT);
+                return true;
+            }
+            else if (!voxelData.ContainsKey(pos  + RIGHT) && pos.x < worldRight)
+            {
+                voxelData.Remove(pos);
+                voxelData.TryAdd(pos  + RIGHT, data);
+                UpdateVoxel(pos  + RIGHT);
+                return true;
+            }
+            else if (!voxelData.ContainsKey(pos  - FORWARD) && pos.z > worldBack)
+            {
+                voxelData.Remove(pos);
+                voxelData.TryAdd(pos  - FORWARD, data);
+                UpdateVoxel(pos  - FORWARD);
+                return true;
+            }
+            else if (!voxelData.ContainsKey(pos + FORWARD) && pos.z < worldFront)
+            {
+                voxelData.Remove(pos);
+                voxelData.TryAdd(pos  + FORWARD, data);
+                UpdateVoxel(pos  + FORWARD);
+                return true;
+            }
+            // corners
+            else if (!voxelData.ContainsKey(pos  - RIGHT - FORWARD) && pos.x > worldLeft && pos.z > worldBack) // level lower left
+            {
+                voxelData.Remove(pos);
+                voxelData.TryAdd(pos  - RIGHT - FORWARD, data);
+                UpdateVoxel(pos  - RIGHT - FORWARD);
+                return true;
+            }
+            else if (!voxelData.ContainsKey(pos  + RIGHT - FORWARD) && pos.x < worldRight && pos.z > worldBack) // level lower right
+            {
+                voxelData.Remove(pos);
+                voxelData.TryAdd(pos  + RIGHT - FORWARD, data);
+                UpdateVoxel(pos  + RIGHT - FORWARD);
+                return true;
+            }
+            else if (!voxelData.ContainsKey(pos  + RIGHT + FORWARD) && pos.x < worldRight && pos.z < worldFront) // level upper right
+            {
+                voxelData.Remove(pos);
+                voxelData.TryAdd(pos  + RIGHT + FORWARD, data);
+                UpdateVoxel(pos  + RIGHT + FORWARD);
+                return true;
+            }
+            else if (!voxelData.ContainsKey(pos  + FORWARD - RIGHT) && pos.x > worldLeft && pos.z < worldFront) // level upper left
+            {
+                voxelData.Remove(pos);
+                voxelData.TryAdd(pos  + FORWARD - RIGHT, data);
+                UpdateVoxel(pos  + FORWARD - RIGHT);
+                return true;
+            }
+        }
+        return false;
+    }
+    bool SandPhysics(int3 pos)
+    {
+        VoxelType data = voxelData[pos];
+        if (!voxelData.ContainsKey(pos - UP) && pos.y > worldBottom)
+        {
+            voxelData.Remove(pos);
+            voxelData.TryAdd(pos - UP, data);
+            UpdateVoxel(pos - UP);
+            return true;
+        }
+        // side
+        else if (!voxelData.ContainsKey(pos - UP - RIGHT) && pos.y > worldBottom && pos.x > worldLeft)
+        {
+            voxelData.Remove(pos);
+            voxelData.TryAdd(pos - UP - RIGHT, data);
+            UpdateVoxel(pos - UP - RIGHT);
+            return true;
+        }
+        else if (!voxelData.ContainsKey(pos - UP + RIGHT) && pos.y > worldBottom && pos.x < worldRight)
+        {
+            voxelData.Remove(pos);
+            voxelData.TryAdd(pos - UP + RIGHT, data);
+            UpdateVoxel(pos - UP + RIGHT);
+            return true;
+        }
+        else if (!voxelData.ContainsKey(pos - UP - FORWARD) && pos.y > worldBottom && pos.z > worldBack)
+        {
+            voxelData.Remove(pos);
+            voxelData.TryAdd(pos - UP - FORWARD, data);
+            UpdateVoxel(pos - UP - FORWARD);
+            return true;
+        }
+        else if (!voxelData.ContainsKey(pos - UP + FORWARD) && pos.y > worldBottom && pos.z < worldFront)
+        {
+            voxelData.Remove(pos);
+            voxelData.TryAdd(pos - UP + FORWARD, data);
+            UpdateVoxel(pos - UP + FORWARD);
+            return true;
+        }
+        // corners
+        else if (!voxelData.ContainsKey(pos - UP - RIGHT - FORWARD) && pos.y > worldBottom && pos.x > worldLeft && pos.z > worldBack) // bottom lower left
+        {
+            voxelData.Remove(pos);
+            voxelData.TryAdd(pos - UP - RIGHT - FORWARD, data);
+            UpdateVoxel(pos - UP - RIGHT - FORWARD);
+            return true;
+        }
+        else if (!voxelData.ContainsKey(pos - UP + RIGHT - FORWARD) && pos.y > worldBottom && pos.x < worldRight && pos.z > worldBack) // bottom lower right
+        {
+            voxelData.Remove(pos);
+            voxelData.TryAdd(pos - UP + RIGHT - FORWARD, data);
+            UpdateVoxel(pos - UP + RIGHT - FORWARD);
+            return true;
+        }
+        else if (!voxelData.ContainsKey(pos - UP + RIGHT + FORWARD) && pos.y > worldBottom && pos.x < worldRight && pos.z < worldFront) // bottom upper right
+        {
+            voxelData.Remove(pos);
+            voxelData.TryAdd(pos - UP + RIGHT + FORWARD, data);
+            UpdateVoxel(pos - UP + RIGHT + FORWARD);
+            return true;
+        }
+        else if (!voxelData.ContainsKey(pos - UP + FORWARD - RIGHT) && pos.y > worldBottom && pos.x > worldLeft && pos.z < worldFront) // bottom upper left
+        {
+            voxelData.Remove(pos);
+            voxelData.TryAdd(pos - UP + FORWARD - RIGHT, data);
+            UpdateVoxel(pos - UP + FORWARD - RIGHT);
+            return true;
+        }
+        return false;
+    }
+    #endregion
+
     #region World Update Methods
     public void UpdateVoxel(int3 pos)
     {
@@ -83,42 +230,28 @@ public class VoxelWorld : MonoBehaviour
     void UpdateVoxelAction(int3 pos)
     {
         if (!voxelData.ContainsKey(pos)) return;
-        if (pos.y == worldBottom) return;
         VoxelType data = voxelData[pos];
         switch (data)
         {
             case VoxelType.WATER:
+                WaterPhysics(pos);
+                break;
             case VoxelType.SAND:
                 // if bottom cell is empty, move there
-                if (!voxelData.ContainsKey(pos - UP))
+                if (!SandPhysics(pos))
                 {
-                    voxelData.Remove(pos);
-                    voxelData.TryAdd(pos - UP, data);
-                    UpdateVoxel(pos - UP);
-                }
-                else if (!voxelData.ContainsKey(pos - UP - RIGHT))
-                {
-                    voxelData.Remove(pos);
-                    voxelData.TryAdd(pos - UP - RIGHT, data);
-                    UpdateVoxel(pos - UP - RIGHT);
-                }
-                else if (!voxelData.ContainsKey(pos - UP + RIGHT))
-                {
-                    voxelData.Remove(pos);
-                    voxelData.TryAdd(pos - UP + RIGHT, data);
-                    UpdateVoxel(pos - UP + RIGHT);
-                }
-                else if (!voxelData.ContainsKey(pos - UP - FORWARD))
-                {
-                    voxelData.Remove(pos);
-                    voxelData.TryAdd(pos - UP - FORWARD, data);
-                    UpdateVoxel(pos - UP - FORWARD);
-                }
-                else if (!voxelData.ContainsKey(pos - UP + FORWARD))
-                {
-                    voxelData.Remove(pos);
-                    voxelData.TryAdd(pos - UP + FORWARD, data);
-                    UpdateVoxel(pos - UP + FORWARD);
+                    if (voxelData.ContainsKey(pos - UP) && voxelData[pos-UP] == VoxelType.WATER)
+                    {
+                        VoxelType data2 = voxelData[pos - UP];
+                        voxelData.Remove(pos - UP);
+                        voxelData.Remove(pos);
+
+                        voxelData.TryAdd(pos - UP, data);
+                        voxelData.TryAdd(pos, data2);
+
+                        UpdateVoxel(pos - UP);
+                        UpdateVoxel(pos);
+                    }
                 }
                 break;
         }

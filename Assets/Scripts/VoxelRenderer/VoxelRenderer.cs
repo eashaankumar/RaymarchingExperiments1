@@ -29,6 +29,8 @@ public class VoxelRenderer : MonoBehaviour
     [Header("Materials")]
     [SerializeField]
     Color sandColor, dirtColor, waterColor;
+    [SerializeField, Tooltip("Minimum amt of water color applied to a water voxel regardless of the voxel that is behind it (helps with visibility)")]
+    float minWaterColorContribution;
 
     int blurKernel, upsampleKernel;
     int ticks;
@@ -150,7 +152,8 @@ public class VoxelRenderer : MonoBehaviour
             voxelData = VoxelWorld.Instance.voxelData,
             sandColor = new float4(sandColor.r, sandColor.g, sandColor.b, sandColor.a),
             dirtColor = new float4(dirtColor.r, dirtColor.g, dirtColor.b, dirtColor.a),
-            waterColor = new float4(waterColor.r, waterColor.g, waterColor.b, waterColor.a)
+            waterColor = new float4(waterColor.r, waterColor.g, waterColor.b, waterColor.a),
+            minWaterColorContribution = minWaterColorContribution,
         };
         renderInProgess = true;
         renderHandle = job.Schedule(pixels.Length, 64);
@@ -228,6 +231,7 @@ public class VoxelRenderer : MonoBehaviour
         [ReadOnly] public float3 planetCenter;
         [ReadOnly] public float planetRadius;
         [ReadOnly] public float4 sandColor, dirtColor, waterColor;
+        [ReadOnly] public float minWaterColorContribution;
 
         void IJobParallelFor.Execute(int index)
         {
@@ -264,10 +268,10 @@ public class VoxelRenderer : MonoBehaviour
         float4 getColor(RaymarchDDAResult res, Ray origin)
         {
             float4 color = new float4(0, 0, 0, 0);
+            float4 albedo = new float4(0, 0, 0, 0);
+
             if (!res.miss)
             {
-                float hitDis = res.pathLength;
-                float depth = math.exp(math.min(1 - hitDis / maxVoxStepCount, 0));
                 //float3 hitPoint = origin.origin + origin.direction * hitDis;
                 //float3 normal = math.normalize(hitPoint - float3.zero);
                 //color = new float4(normal.xyz * 0.5f + 0.5f, 1);
@@ -275,17 +279,24 @@ public class VoxelRenderer : MonoBehaviour
                 switch(t)
                 {
                     case VoxelWorld.VoxelType.SAND:
-                        color = sandColor;
+                        albedo = sandColor;
                         break;
                     case VoxelWorld.VoxelType.DIRT:
-                        color = dirtColor;
+                        albedo = dirtColor;
                         break;
-                    case VoxelWorld.VoxelType.WATER:
+                    /*case VoxelWorld.VoxelType.WATER:
                         color = waterColor;
-                        break;
+                        break;*/
                 }
-                color = color * depth;
+                
             }
+            if (res.distThroughWater > 0)
+            {
+                float hitDis = res.pathLength;
+                float depth = math.exp(-1f / hitDis);
+                albedo = waterColor + albedo * (1-math.exp(- 1f / res.distThroughWater));
+            }
+            color = albedo;
             return color;
         }
 
@@ -321,16 +332,13 @@ public class VoxelRenderer : MonoBehaviour
         #region Voxel Traversal raymarching
         bool DDAHit(int3 mapPos)
         {
-            return voxelData.ContainsKey(mapPos);
+            return voxelData.ContainsKey(mapPos) && voxelData[mapPos] != VoxelWorld.VoxelType.WATER;
         }
-        struct RaymarchDDAResult
+
+        bool IsWater(int3 mapPos)
         {
-            public int3 mapPos;
-            public bool miss;
-            public float pathLength; // distance to solid voxel entry face (of the cube representing the voxel, not the triangles)
-                                     //Triangle t;
-            public float voxelD; // how far the ray travels inside solid voxel before hitting a triangle
-        };
+            return voxelData.ContainsKey(mapPos) && voxelData[mapPos] == VoxelWorld.VoxelType.WATER;
+        }
 
         RaymarchDDAResult raymarchDDA(float3 o, float3 dir, int maxStepCount)
         {
@@ -343,9 +351,10 @@ public class VoxelRenderer : MonoBehaviour
             int3 rayStep = new int3(math.sign(dir));
             // length of ray from current position to next xyz-side
             float3 sideDist = (math.sign(dir) * (new float3(mapPos.x, mapPos.y, mapPos.z) - o) + (math.sign(dir) * 0.5f) + 0.5f) * deltaDist;
-            // bool3 mask;
+            bool3 mask = new bool3();
             bool miss = false;
             float pathLength = 0;
+            float distThroughWater = 0;
             //CheckRayHitsTriangle hits;
             for (int i = 0; i < maxStepCount; i++)
             {
@@ -362,14 +371,15 @@ public class VoxelRenderer : MonoBehaviour
                         pathLength = sideDist.x;
                         sideDist.x += deltaDist.x;
                         mapPos.x += rayStep.x;
-                        //mask = bool3(true, false, false);
+
+                        mask = new bool3(true, false, false);
                     }
                     else
                     {
                         pathLength = sideDist.z;
                         sideDist.z += deltaDist.z;
                         mapPos.z += rayStep.z;
-                        //mask = bool3(false, false, true);
+                        mask = new bool3(false, false, true);
                     }
                 }
                 else
@@ -379,15 +389,22 @@ public class VoxelRenderer : MonoBehaviour
                         pathLength = sideDist.y;
                         sideDist.y += deltaDist.y;
                         mapPos.y += rayStep.y;
-                        //mask = bool3(false, true, false);
+                        mask = new bool3(false, true, false);
                     }
                     else
                     {
                         pathLength = sideDist.z;
                         sideDist.z += deltaDist.z;
                         mapPos.z += rayStep.z;
-                        //mask = bool3(false, false, true);
+                        mask = new bool3(false, false, true);
                     }
+                }
+                if (IsWater(mapPos))
+                {
+                    if (mask.x) distThroughWater += deltaDist.x;
+                    if (mask.y) distThroughWater += deltaDist.y;
+                    if (mask.z) distThroughWater += deltaDist.z;
+
                 }
                 if (i == maxStepCount - 1)
                 {
@@ -400,6 +417,7 @@ public class VoxelRenderer : MonoBehaviour
                 mapPos = mapPos,
                 miss = miss,
                 pathLength = pathLength,
+                distThroughWater = distThroughWater,
             };
             //result.normal = normalize(hits.tri.vertexA.normal + hits.tri.vertexB.normal + hits.tri.vertexC.normal);
             /*result.t = hits.tri;
@@ -504,7 +522,7 @@ public class VoxelRenderer : MonoBehaviour
         public int3 mapPos;
         public bool miss;
         public float pathLength; // distance to solid voxel entry face (of the cube representing the voxel, not the triangles)
-        //Triangle t;
+        public float distThroughWater;
         public float voxelD; // how far the ray travels inside solid voxel before hitting a triangle
     };
 
