@@ -29,8 +29,10 @@ public class VoxelRenderer : MonoBehaviour
     [Header("Materials")]
     [SerializeField]
     Color sandColor, dirtColor, waterColor;
-    [SerializeField, Tooltip("Minimum amt of water color applied to a water voxel regardless of the voxel that is behind it (helps with visibility)")]
-    float minWaterColorContribution;
+
+    [Header("Terraform")]
+    [SerializeField]
+    int brushSize;
 
     int blurKernel, upsampleKernel;
     int ticks;
@@ -44,8 +46,11 @@ public class VoxelRenderer : MonoBehaviour
 
     float4[] pixels;
     NativeArray<float4> pixelsArr;
+    NativeList<int3> updateQueue;
 
     float4x4 CamToWorld, CamInvProj;
+
+    VoxelWorld.VoxelType terraformType;
 
     public static VoxelRenderer Instance;
 
@@ -79,10 +84,12 @@ public class VoxelRenderer : MonoBehaviour
     {
     }
 
+    public bool hasLock;
+
     private void Update()
     {
         ticks++;
-        if (ticks > renderTicks)
+        if (ticks > renderTicks && hasLock)
         {
             ticks = 0;
 
@@ -127,6 +134,23 @@ public class VoxelRenderer : MonoBehaviour
         CamToWorld = cam.cameraToWorldMatrix;
 
         pixelsArr = new NativeArray<float4>(pixels, Allocator.TempJob);
+        updateQueue = new NativeList<int3>(Allocator.TempJob);
+    }
+
+    void GetInput()
+    {
+        if (Input.GetKey(KeyCode.Alpha1))
+        {
+            terraformType = VoxelWorld.VoxelType.SAND;
+        }
+        if (Input.GetKey(KeyCode.Alpha2))
+        {
+            terraformType = VoxelWorld.VoxelType.DIRT;
+        }
+        if (Input.GetKey(KeyCode.Alpha3))
+        {
+            terraformType = VoxelWorld.VoxelType.WATER;
+        }
     }
 
     /// <summary>
@@ -134,13 +158,18 @@ public class VoxelRenderer : MonoBehaviour
     /// </summary>
     private void StartRender()
     {
+        renderInProgess = true;
+
         Init();
+
+        GetInput();
 
         //renderOdds = !renderOdds;
 
         RenderJob job = new RenderJob()
         {
             pixels = pixelsArr,
+            updateQueue = updateQueue,
             width = width,
             height = height,
             _CameraToWorld = cam.cameraToWorldMatrix,
@@ -153,9 +182,11 @@ public class VoxelRenderer : MonoBehaviour
             sandColor = new float4(sandColor.r, sandColor.g, sandColor.b, sandColor.a),
             dirtColor = new float4(dirtColor.r, dirtColor.g, dirtColor.b, dirtColor.a),
             waterColor = new float4(waterColor.r, waterColor.g, waterColor.b, waterColor.a),
-            minWaterColorContribution = minWaterColorContribution,
+            terraform = Input.GetMouseButton(0),
+            BrushSize = brushSize,
+            VoxWorldDims = VoxelWorld.Instance.VoxWorldDims,
+            terraformType = terraformType,
         };
-        renderInProgess = true;
         renderHandle = job.Schedule(pixels.Length, 64);
     }
 
@@ -166,7 +197,12 @@ public class VoxelRenderer : MonoBehaviour
     {
         renderHandle.Complete();
         pixels = pixelsArr.ToArray();
+        for(int i = 0; i < updateQueue.Length; i++)
+        {
+            VoxelWorld.Instance.UpdateVoxel(updateQueue[i]);
+        }
         pixelsArr.Dispose();
+        updateQueue.Dispose();
         renderInProgess = false;
 
         tex.SetPixelData<float4>(pixels, 0);
@@ -218,7 +254,9 @@ public class VoxelRenderer : MonoBehaviour
         public NativeArray<float4> pixels;
 
         [NativeDisableParallelForRestriction]
-        public NativeParallelHashMap<int3, VoxelWorld.VoxelType> voxelData;
+        public NativeParallelHashMap<int3, VoxelWorld.VoxelData> voxelData;
+        [NativeDisableParallelForRestriction]
+        public NativeList<int3> updateQueue;
 
         [ReadOnly] public int width;
         [ReadOnly] public int height;
@@ -231,7 +269,10 @@ public class VoxelRenderer : MonoBehaviour
         [ReadOnly] public float3 planetCenter;
         [ReadOnly] public float planetRadius;
         [ReadOnly] public float4 sandColor, dirtColor, waterColor;
-        [ReadOnly] public float minWaterColorContribution;
+        [ReadOnly] public bool terraform;
+        [ReadOnly] public int BrushSize;
+        [ReadOnly] public VoxelWorld.VoxelType terraformType;
+        [ReadOnly] public VoxelWorld.VoxelWorldDimensions VoxWorldDims;
 
         void IJobParallelFor.Execute(int index)
         {
@@ -252,6 +293,39 @@ public class VoxelRenderer : MonoBehaviour
 
             float4 color = getColor(rs, ray);
             pixels[index] = color;
+
+            if (terraform)
+            {
+                Terraform(rs.mapPos, uv, width, height);
+            }
+        }
+
+        bool IsVoxInBounds(int3 v)
+        {
+            return v.x >= VoxWorldDims.worldLeft && v.x <= VoxWorldDims.worldRight &&
+                    v.y >= VoxWorldDims.worldBottom &&
+                    v.z >= VoxWorldDims.worldBack && v.z <= VoxWorldDims.worldFront;
+        }
+
+        void Terraform(int3 mapPos, int2 id, int width, int height)
+        {
+            if (id.x == width / 2 && id.y == height / 2)
+            {
+                for (int x = - BrushSize; x <= BrushSize; x++)
+                {
+                    for (int y = - BrushSize; y <= BrushSize; y++)
+                    {
+                        for (int z = -BrushSize; z <= BrushSize; z++)
+                        {
+                            int3 offset = new int3(x, y, z);
+                            int3 newMapPos = mapPos + offset;
+                            if (!IsVoxInBounds(newMapPos) || voxelData.ContainsKey(newMapPos)) continue;
+                            voxelData.Add(newMapPos, new VoxelWorld.VoxelData() { t = terraformType, tint=math.sin(newMapPos.x + newMapPos.y + newMapPos.z) * 0.1f});
+                            updateQueue.Add(newMapPos);
+                        }
+                    }
+                }
+            }
         }
 
 
@@ -275,8 +349,8 @@ public class VoxelRenderer : MonoBehaviour
                 //float3 hitPoint = origin.origin + origin.direction * hitDis;
                 //float3 normal = math.normalize(hitPoint - float3.zero);
                 //color = new float4(normal.xyz * 0.5f + 0.5f, 1);
-                VoxelWorld.VoxelType t = voxelData[res.mapPos];
-                switch(t)
+                VoxelWorld.VoxelData d = voxelData[res.mapPos];
+                switch(d.t)
                 {
                     case VoxelWorld.VoxelType.SAND:
                         albedo = sandColor;
@@ -288,15 +362,15 @@ public class VoxelRenderer : MonoBehaviour
                         color = waterColor;
                         break;*/
                 }
-                
+                albedo = math.saturate(albedo + d.tint);
             }
             if (res.distThroughWater > 0)
             {
-                float hitDis = res.pathLength;
-                float depth = math.exp(-1f / hitDis);
                 albedo = waterColor + albedo * (1-math.exp(- 1f / res.distThroughWater));
             }
-            color = albedo;
+            float hitDis = res.pathLength;
+            float depth = math.exp(-1f / hitDis);
+            color = albedo * depth;
             return color;
         }
 
@@ -332,12 +406,12 @@ public class VoxelRenderer : MonoBehaviour
         #region Voxel Traversal raymarching
         bool DDAHit(int3 mapPos)
         {
-            return voxelData.ContainsKey(mapPos) && voxelData[mapPos] != VoxelWorld.VoxelType.WATER;
+            return voxelData.ContainsKey(mapPos) && voxelData[mapPos].t != VoxelWorld.VoxelType.WATER;
         }
 
         bool IsWater(int3 mapPos)
         {
-            return voxelData.ContainsKey(mapPos) && voxelData[mapPos] == VoxelWorld.VoxelType.WATER;
+            return voxelData.ContainsKey(mapPos) && voxelData[mapPos].t == VoxelWorld.VoxelType.WATER;
         }
 
         RaymarchDDAResult raymarchDDA(float3 o, float3 dir, int maxStepCount)
