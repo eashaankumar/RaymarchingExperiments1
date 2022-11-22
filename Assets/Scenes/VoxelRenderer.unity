@@ -556,9 +556,9 @@ MonoBehaviour:
   renderTicks: 1
   downsamples: 2
   maxRenderDist: 500
-  maxVoxStepCount: 100
+  maxVoxStepCount: 250
   gaussianPyramidShader: {fileID: 7200000, guid: c3e7927853acc294c8bc440ad41a5853, type: 3}
-  blurSize: 2
+  blurSize: 20
   std: 1
   sandColor: {r: 1, g: 0.5469046, b: 0, a: 1}
   dirtColor: {r: 0.5471698, g: 0.16577443, b: 0, a: 1}
@@ -761,7 +761,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: af9fe0f17be99174cb8e4748d247e465, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  updateRequestsProcessCount: 10
+  updateRequestsProcessCount: 500
+  worldBottom: -100
 --- !u!4 &1757045251
 Transform:
   m_ObjectHideFlags: 0

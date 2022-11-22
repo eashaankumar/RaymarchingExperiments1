@@ -266,7 +266,8 @@ public class VoxelRenderer : MonoBehaviour
             float4 color = new float4(0, 0, 0, 0);
             if (!res.miss)
             {
-                //float hitDis = res.pathLength;
+                float hitDis = res.pathLength;
+                float depth = math.exp(math.min(1 - hitDis / maxVoxStepCount, 0));
                 //float3 hitPoint = origin.origin + origin.direction * hitDis;
                 //float3 normal = math.normalize(hitPoint - float3.zero);
                 //color = new float4(normal.xyz * 0.5f + 0.5f, 1);
@@ -283,6 +284,7 @@ public class VoxelRenderer : MonoBehaviour
                         color = waterColor;
                         break;
                 }
+                color = color * depth;
             }
             return color;
         }
