@@ -32,6 +32,7 @@ public class VoxelWorld : MonoBehaviour
         get { return renderChunks; }
     }
 
+    bool updating;
 
     public VoxelWorldDimensions VoxWorldDims
     {
@@ -42,8 +43,11 @@ public class VoxelWorld : MonoBehaviour
     Camera cam;
 
     //CoroutineQueue worldUpdateActions;
-    delegate void WorldUpdateAction();
-    Queue<WorldUpdateAction> worldUpdateActions;
+    public delegate void WorldUpdateAction();
+    public struct WorldUpdateActionHolder
+    {
+        public WorldUpdateAction action;
+    }
     
     [Serializable]
     public struct VoxelWorldDimensions
@@ -69,6 +73,7 @@ public class VoxelWorld : MonoBehaviour
 
     public NativeParallelHashMap<int3, VoxelData> voxelData;
     public NativeParallelHashMap<int3, VoxelWorldChunk> chunks;
+    public NativeQueue<int3> worldUpdateActions;
     //public NativeParallelHashSet<int3> voxelsToUpdate;
 
     static int3 UP = new int3(0, 1, 0);
@@ -79,11 +84,10 @@ public class VoxelWorld : MonoBehaviour
     {
         Instance = this;
 
-        worldUpdateActions = new Queue<WorldUpdateAction>();
+        worldUpdateActions = new NativeQueue<int3>(Allocator.Persistent);
         voxelData = new NativeParallelHashMap<int3, VoxelData>(10000, Allocator.Persistent);
         chunks = new NativeParallelHashMap<int3, VoxelWorldChunk>(10000, Allocator.Persistent);
     }
-    // Start is called before the first frame update
     void Start()
     {
         int x = (dims.worldLeft + dims.worldRight) / 2;
@@ -91,47 +95,36 @@ public class VoxelWorld : MonoBehaviour
         int z = (dims.worldBack + dims.worldFront) / 2;
 
         AddVoxel(new int3(x, y, z), new VoxelData (){ t=VoxelType.SAND, tint = 0});
-
-        for (int i = 0; i < 1; i++)
-        {
-            Thread updateWorldThread = new Thread(() => ThreadedUpdate());
-            updateWorldThread.IsBackground = true;
-            updateWorldThread.Priority = System.Threading.ThreadPriority.Highest;
-            updateWorldThread.Start();
-        }
     }
 
     private void OnDestroy()
     {
         voxelData.Dispose();
         chunks.Dispose();
+        worldUpdateActions.Dispose();
         //voxelsToUpdate.Dispose();
     }
+
+    JobHandle updateJobHandle;
 
     // Update is called once per frame
     void Update()
     {
-        
-    }
-
-    private System.Object thisLock = new System.Object();
-    void ThreadedUpdate()
-    {
-        while(true)
+        /*if (updateJobHandle.IsCompleted)
         {
-            int processed = 0;
-            VoxelRenderer.Instance.hasLock = false;
-            while (!VoxelRenderer.Instance.RenderInProgress && worldUpdateActions.Count > 0 && processed < updateRequestsProcessCount)
+            updateJobHandle.Complete();
+            updating = false;
+        }*/
+        if (/*!updating && */!VoxelRenderer.Instance.RenderInProgress)
+        {
+            //updating = true;
+            /*UpdateJob job = new UpdateJob()
             {
-                lock (thisLock)
-                {
-                    WorldUpdateAction a = worldUpdateActions.Dequeue();
-                    if (a != null) a();
-                }
-                processed++;
-            }
-            VoxelRenderer.Instance.hasLock = true;
-            Thread.Sleep(10);
+                voxelData = voxelData,
+                dims = dims,
+            };
+            updateJobHandle = job.Schedule(0, 64);
+            updateJobHandle.Complete();*/
         }
     }
 
@@ -146,238 +139,14 @@ public class VoxelWorld : MonoBehaviour
     }
     #endregion
 
-    #region Voxel Physics Logic
-    bool WaterPhysics(int3 pos, ref int3 newPos)
-    {
-        VoxelData data = voxelData[pos];
-        if (!SandPhysics(pos))
-        {
-            // side
-            if (!voxelData.ContainsKey(pos - RIGHT) && pos.x > dims.worldLeft)
-            {
-                voxelData.Remove(pos);
-                voxelData.TryAdd(pos - RIGHT, data);
-                newPos = pos - RIGHT;
-                UpdateVoxel(pos  - RIGHT);
-                return true;
-            }
-            else if (!voxelData.ContainsKey(pos  + RIGHT) && pos.x < dims.worldRight)
-            {
-                voxelData.Remove(pos);
-                voxelData.TryAdd(pos  + RIGHT, data);
-                newPos = pos + RIGHT;
-                UpdateVoxel(pos  + RIGHT);
-                return true;
-            }
-            else if (!voxelData.ContainsKey(pos  - FORWARD) && pos.z > dims.worldBack)
-            {
-                voxelData.Remove(pos);
-                voxelData.TryAdd(pos  - FORWARD, data);
-                newPos = pos - FORWARD;
-                UpdateVoxel(pos  - FORWARD);
-                return true;
-            }
-            else if (!voxelData.ContainsKey(pos + FORWARD) && pos.z < dims.worldFront)
-            {
-                voxelData.Remove(pos);
-                voxelData.TryAdd(pos  + FORWARD, data);
-                newPos = pos + FORWARD;
-                UpdateVoxel(pos  + FORWARD);
-                return true;
-            }
-            // corners
-            else if (!voxelData.ContainsKey(pos  - RIGHT - FORWARD) && pos.x > dims.worldLeft && pos.z > dims.worldBack) // level lower left
-            {
-                voxelData.Remove(pos);
-                voxelData.TryAdd(pos  - RIGHT - FORWARD, data);
-                newPos = pos - RIGHT - FORWARD;
-                UpdateVoxel(pos  - RIGHT - FORWARD);
-                return true;
-            }
-            else if (!voxelData.ContainsKey(pos  + RIGHT - FORWARD) && pos.x < dims.worldRight && pos.z > dims.worldBack) // level lower right
-            {
-                voxelData.Remove(pos);
-                voxelData.TryAdd(pos  + RIGHT - FORWARD, data);
-                newPos = pos + RIGHT - FORWARD;
-                UpdateVoxel(pos  + RIGHT - FORWARD);
-                return true;
-            }
-            else if (!voxelData.ContainsKey(pos  + RIGHT + FORWARD) && pos.x < dims.worldRight && pos.z < dims.worldFront) // level upper right
-            {
-                voxelData.Remove(pos);
-                voxelData.TryAdd(pos  + RIGHT + FORWARD, data);
-                newPos = pos + RIGHT + FORWARD;
-                UpdateVoxel(pos  + RIGHT + FORWARD);
-                return true;
-            }
-            else if (!voxelData.ContainsKey(pos  + FORWARD - RIGHT) && pos.x > dims.worldLeft && pos.z < dims.worldFront) // level upper left
-            {
-                voxelData.Remove(pos);
-                voxelData.TryAdd(pos  + FORWARD - RIGHT, data);
-                newPos = pos + FORWARD - RIGHT;
-                UpdateVoxel(pos  + FORWARD - RIGHT);
-                return true;
-            }
-        }
-        newPos = pos;
-        UpdateVoxel(pos);
-        return false;
-    }
-    bool SandPhysics(int3 pos)
-    {
-        if (!voxelData.ContainsKey(pos)) return false;
-        VoxelData data = voxelData[pos];
-        if (!voxelData.ContainsKey(pos - UP) && pos.y > dims.worldBottom)
-        {
-            voxelData.Remove(pos);
-            voxelData.TryAdd(pos - UP, data);
-            UpdateVoxel(pos - UP);
-            return true;
-        }
-        // side
-        else if (!voxelData.ContainsKey(pos - UP - RIGHT) && pos.y > dims.worldBottom && pos.x > dims.worldLeft)
-        {
-            voxelData.Remove(pos);
-            voxelData.TryAdd(pos - UP - RIGHT, data);
-            UpdateVoxel(pos - UP - RIGHT);
-            return true;
-        }
-        else if (!voxelData.ContainsKey(pos - UP + RIGHT) && pos.y > dims.worldBottom && pos.x < dims.worldRight)
-        {
-            voxelData.Remove(pos);
-            voxelData.TryAdd(pos - UP + RIGHT, data);
-            UpdateVoxel(pos - UP + RIGHT);
-            return true;
-        }
-        else if (!voxelData.ContainsKey(pos - UP - FORWARD) && pos.y > dims.worldBottom && pos.z > dims.worldBack)
-        {
-            voxelData.Remove(pos);
-            voxelData.TryAdd(pos - UP - FORWARD, data);
-            UpdateVoxel(pos - UP - FORWARD);
-            return true;
-        }
-        else if (!voxelData.ContainsKey(pos - UP + FORWARD) && pos.y > dims.worldBottom && pos.z < dims.worldFront)
-        {
-            voxelData.Remove(pos);
-            voxelData.TryAdd(pos - UP + FORWARD, data);
-            UpdateVoxel(pos - UP + FORWARD);
-            return true;
-        }
-        // corners
-        else if (!voxelData.ContainsKey(pos - UP - RIGHT - FORWARD) && pos.y > dims.worldBottom && pos.x > dims.worldLeft && pos.z > dims.worldBack) // bottom lower left
-        {
-            voxelData.Remove(pos);
-            voxelData.TryAdd(pos - UP - RIGHT - FORWARD, data);
-            UpdateVoxel(pos - UP - RIGHT - FORWARD);
-            return true;
-        }
-        else if (!voxelData.ContainsKey(pos - UP + RIGHT - FORWARD) && pos.y > dims.worldBottom && pos.x < dims.worldRight && pos.z > dims.worldBack) // bottom lower right
-        {
-            voxelData.Remove(pos);
-            voxelData.TryAdd(pos - UP + RIGHT - FORWARD, data);
-            UpdateVoxel(pos - UP + RIGHT - FORWARD);
-            return true;
-        }
-        else if (!voxelData.ContainsKey(pos - UP + RIGHT + FORWARD) && pos.y > dims.worldBottom && pos.x < dims.worldRight && pos.z < dims.worldFront) // bottom upper right
-        {
-            voxelData.Remove(pos);
-            voxelData.TryAdd(pos - UP + RIGHT + FORWARD, data);
-            UpdateVoxel(pos - UP + RIGHT + FORWARD);
-            return true;
-        }
-        else if (!voxelData.ContainsKey(pos - UP + FORWARD - RIGHT) && pos.y > dims.worldBottom && pos.x > dims.worldLeft && pos.z < dims.worldFront) // bottom upper left
-        {
-            voxelData.Remove(pos);
-            voxelData.TryAdd(pos - UP + FORWARD - RIGHT, data);
-            UpdateVoxel(pos - UP + FORWARD - RIGHT);
-            return true;
-        }
-        return false;
-    }
-    #endregion
-
     #region World Update Methods
-    public void UpdateVoxel(int3 pos)
-    {
-        if (voxelData.ContainsKey(pos))
-            worldUpdateActions.Enqueue(() => UpdateVoxelAction(pos));
-    }
-    void UpdateVoxelAction(int3 pos)
-    {
-        if (!voxelData.ContainsKey(pos)) return;
-        VoxelData data = voxelData[pos];
-        bool wasUpdated = false;
-        switch (data.t)
-        {
-            case VoxelType.WATER:
-                int3 newpos = pos;
-                wasUpdated = WaterPhysics(pos, ref newpos);
-                if (!wasUpdated) 
-                {
-                    /*data.staleTicks++;
-                    voxelData[newpos] = data;
-                    if (data.staleTicks < 10)
-                    {
-                        UpdateVoxel(newpos);
-                    }*/
-                }
-                else
-                {
-                    /*VoxelData temp = voxelData[newpos];
-                    temp.staleTicks = 0;
-                    voxelData[newpos] = temp;*/
-                    //UpdateVoxel(newpos);
-                }
-                break;
-            case VoxelType.SAND:
-                // if bottom cell is empty, move there
-                if (!SandPhysics(pos))
-                {
-                    if (voxelData.ContainsKey(pos - UP) && voxelData[pos-UP].t == VoxelType.WATER)
-                    {
-                        VoxelData data2 = voxelData[pos - UP];
-                        voxelData.Remove(pos - UP);
-                        voxelData.Remove(pos);
-
-                        voxelData.TryAdd(pos - UP, data);
-                        voxelData.TryAdd(pos, data2);
-
-                        //UpdateVoxel(pos - UP);
-                        //UpdateVoxel(pos);
-                        wasUpdated = true;
-                    }
-                    //UpdateVoxel(pos);
-                }
-                else
-                {
-                    wasUpdated = true;
-                }
-                break;
-        }
-        /*if (wasUpdated)
-        {
-            for(int x = -1; x <= 1; x++)
-            {
-                for (int y = -1; y <= 1; y++)
-                {
-                    for (int z = -1; z <= 1; z++)
-                    {
-                        int3 p = pos + new int3(x, y, z);
-                        if (voxelData.ContainsKey(p)) UpdateVoxel(p);
-                    }
-                }
-            }
-        }*/
-    }
-
-
     public void AddVoxel(int3 pos, VoxelData t)
     {
-        worldUpdateActions.Enqueue(() => AddVoxelAction(pos, t));
+
     }
     void AddVoxelAction(int3 pos, VoxelData t)
     {
-        if (voxelData.TryAdd(pos, t))
+        /*if (voxelData.TryAdd(pos, t))
         {
             switch (t.t)
             {
@@ -386,18 +155,226 @@ public class VoxelWorld : MonoBehaviour
                     UpdateVoxel(pos);
                     break;
             }
-        }
+        }*/
     }
     #endregion
 
     #region Update Jobs
     [BurstCompile]
-    struct RenderJob : IJobParallelFor
+    struct UpdateJob : IJobParallelFor
     {
+        [NativeDisableParallelForRestriction]
+        public NativeParallelHashMap<int3, VoxelData> voxelData;
+        [ReadOnly] public VoxelWorldDimensions dims;
         public void Execute(int index)
         {
             
         }
+
+        #region Voxel Physics Logic
+        bool WaterPhysics(int3 pos, ref int3 newPos)
+        {
+            VoxelData data = voxelData[pos];
+            if (!SandPhysics(pos))
+            {
+                // side
+                if (!voxelData.ContainsKey(pos - RIGHT) && pos.x > dims.worldLeft)
+                {
+                    voxelData.Remove(pos);
+                    voxelData.TryAdd(pos - RIGHT, data);
+                    newPos = pos - RIGHT;
+                    UpdateVoxel(pos - RIGHT);
+                    return true;
+                }
+                else if (!voxelData.ContainsKey(pos + RIGHT) && pos.x < dims.worldRight)
+                {
+                    voxelData.Remove(pos);
+                    voxelData.TryAdd(pos + RIGHT, data);
+                    newPos = pos + RIGHT;
+                    UpdateVoxel(pos + RIGHT);
+                    return true;
+                }
+                else if (!voxelData.ContainsKey(pos - FORWARD) && pos.z > dims.worldBack)
+                {
+                    voxelData.Remove(pos);
+                    voxelData.TryAdd(pos - FORWARD, data);
+                    newPos = pos - FORWARD;
+                    UpdateVoxel(pos - FORWARD);
+                    return true;
+                }
+                else if (!voxelData.ContainsKey(pos + FORWARD) && pos.z < dims.worldFront)
+                {
+                    voxelData.Remove(pos);
+                    voxelData.TryAdd(pos + FORWARD, data);
+                    newPos = pos + FORWARD;
+                    UpdateVoxel(pos + FORWARD);
+                    return true;
+                }
+                // corners
+                else if (!voxelData.ContainsKey(pos - RIGHT - FORWARD) && pos.x > dims.worldLeft && pos.z > dims.worldBack) // level lower left
+                {
+                    voxelData.Remove(pos);
+                    voxelData.TryAdd(pos - RIGHT - FORWARD, data);
+                    newPos = pos - RIGHT - FORWARD;
+                    UpdateVoxel(pos - RIGHT - FORWARD);
+                    return true;
+                }
+                else if (!voxelData.ContainsKey(pos + RIGHT - FORWARD) && pos.x < dims.worldRight && pos.z > dims.worldBack) // level lower right
+                {
+                    voxelData.Remove(pos);
+                    voxelData.TryAdd(pos + RIGHT - FORWARD, data);
+                    newPos = pos + RIGHT - FORWARD;
+                    UpdateVoxel(pos + RIGHT - FORWARD);
+                    return true;
+                }
+                else if (!voxelData.ContainsKey(pos + RIGHT + FORWARD) && pos.x < dims.worldRight && pos.z < dims.worldFront) // level upper right
+                {
+                    voxelData.Remove(pos);
+                    voxelData.TryAdd(pos + RIGHT + FORWARD, data);
+                    newPos = pos + RIGHT + FORWARD;
+                    UpdateVoxel(pos + RIGHT + FORWARD);
+                    return true;
+                }
+                else if (!voxelData.ContainsKey(pos + FORWARD - RIGHT) && pos.x > dims.worldLeft && pos.z < dims.worldFront) // level upper left
+                {
+                    voxelData.Remove(pos);
+                    voxelData.TryAdd(pos + FORWARD - RIGHT, data);
+                    newPos = pos + FORWARD - RIGHT;
+                    UpdateVoxel(pos + FORWARD - RIGHT);
+                    return true;
+                }
+            }
+            newPos = pos;
+            UpdateVoxel(pos);
+            return false;
+        }
+        bool SandPhysics(int3 pos)
+        {
+            if (!voxelData.ContainsKey(pos)) return false;
+            VoxelData data = voxelData[pos];
+            if (!voxelData.ContainsKey(pos - UP) && pos.y > dims.worldBottom)
+            {
+                voxelData.Remove(pos);
+                voxelData.TryAdd(pos - UP, data);
+                UpdateVoxel(pos - UP);
+                return true;
+            }
+            // side
+            else if (!voxelData.ContainsKey(pos - UP - RIGHT) && pos.y > dims.worldBottom && pos.x > dims.worldLeft)
+            {
+                voxelData.Remove(pos);
+                voxelData.TryAdd(pos - UP - RIGHT, data);
+                UpdateVoxel(pos - UP - RIGHT);
+                return true;
+            }
+            else if (!voxelData.ContainsKey(pos - UP + RIGHT) && pos.y > dims.worldBottom && pos.x < dims.worldRight)
+            {
+                voxelData.Remove(pos);
+                voxelData.TryAdd(pos - UP + RIGHT, data);
+                UpdateVoxel(pos - UP + RIGHT);
+                return true;
+            }
+            else if (!voxelData.ContainsKey(pos - UP - FORWARD) && pos.y > dims.worldBottom && pos.z > dims.worldBack)
+            {
+                voxelData.Remove(pos);
+                voxelData.TryAdd(pos - UP - FORWARD, data);
+                UpdateVoxel(pos - UP - FORWARD);
+                return true;
+            }
+            else if (!voxelData.ContainsKey(pos - UP + FORWARD) && pos.y > dims.worldBottom && pos.z < dims.worldFront)
+            {
+                voxelData.Remove(pos);
+                voxelData.TryAdd(pos - UP + FORWARD, data);
+                UpdateVoxel(pos - UP + FORWARD);
+                return true;
+            }
+            // corners
+            else if (!voxelData.ContainsKey(pos - UP - RIGHT - FORWARD) && pos.y > dims.worldBottom && pos.x > dims.worldLeft && pos.z > dims.worldBack) // bottom lower left
+            {
+                voxelData.Remove(pos);
+                voxelData.TryAdd(pos - UP - RIGHT - FORWARD, data);
+                UpdateVoxel(pos - UP - RIGHT - FORWARD);
+                return true;
+            }
+            else if (!voxelData.ContainsKey(pos - UP + RIGHT - FORWARD) && pos.y > dims.worldBottom && pos.x < dims.worldRight && pos.z > dims.worldBack) // bottom lower right
+            {
+                voxelData.Remove(pos);
+                voxelData.TryAdd(pos - UP + RIGHT - FORWARD, data);
+                UpdateVoxel(pos - UP + RIGHT - FORWARD);
+                return true;
+            }
+            else if (!voxelData.ContainsKey(pos - UP + RIGHT + FORWARD) && pos.y > dims.worldBottom && pos.x < dims.worldRight && pos.z < dims.worldFront) // bottom upper right
+            {
+                voxelData.Remove(pos);
+                voxelData.TryAdd(pos - UP + RIGHT + FORWARD, data);
+                UpdateVoxel(pos - UP + RIGHT + FORWARD);
+                return true;
+            }
+            else if (!voxelData.ContainsKey(pos - UP + FORWARD - RIGHT) && pos.y > dims.worldBottom && pos.x > dims.worldLeft && pos.z < dims.worldFront) // bottom upper left
+            {
+                voxelData.Remove(pos);
+                voxelData.TryAdd(pos - UP + FORWARD - RIGHT, data);
+                UpdateVoxel(pos - UP + FORWARD - RIGHT);
+                return true;
+            }
+            return false;
+        }
+        #endregion
+
+        public void UpdateVoxel(int3 pos)
+        {
+            /*if (voxelData.ContainsKey(pos))
+                worldUpdateActions.Enqueue(() => UpdateVoxelAction(pos));*/
+        }
+
+        void UpdateVoxelAction(int3 pos)
+        {
+            if (!voxelData.ContainsKey(pos)) return;
+            VoxelData data = voxelData[pos];
+            bool wasUpdated = false;
+            switch (data.t)
+            {
+                case VoxelType.WATER:
+                    int3 newpos = pos;
+                    wasUpdated = WaterPhysics(pos, ref newpos);
+                    if (!wasUpdated)
+                    {
+                        /*data.staleTicks++;
+                        voxelData[newpos] = data;
+                        if (data.staleTicks < 10)
+                        {
+                            UpdateVoxel(newpos);
+                        }*/
+                        UpdateVoxel(pos);
+                    }
+                    break;
+                case VoxelType.SAND:
+                    // if bottom cell is empty, move there
+                    if (!SandPhysics(pos))
+                    {
+                        if (voxelData.ContainsKey(pos - UP) && voxelData[pos - UP].t == VoxelType.WATER)
+                        {
+                            VoxelData data2 = voxelData[pos - UP];
+                            voxelData.Remove(pos - UP);
+                            voxelData.Remove(pos);
+
+                            voxelData.TryAdd(pos - UP, data);
+                            voxelData.TryAdd(pos, data2);
+
+                            UpdateVoxel(pos - UP);
+                            //UpdateVoxel(pos);
+                            wasUpdated = true;
+                        }
+                        UpdateVoxel(pos);
+                    }
+                    else
+                    {
+                        wasUpdated = true;
+                    }
+                    break;
+            }
+        }
+
     }
     #endregion
 }

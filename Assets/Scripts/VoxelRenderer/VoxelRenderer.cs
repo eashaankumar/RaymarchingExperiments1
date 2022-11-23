@@ -28,7 +28,7 @@ public class VoxelRenderer : MonoBehaviour
 
     [Header("Materials")]
     [SerializeField]
-    Color sandColor, dirtColor, waterColor;
+    Color sandColor, dirtColor, waterColor, skyboxBlueDark, skyboxBlueLight, skyboxRed;
 
     [Header("Terraform")]
     [SerializeField]
@@ -84,12 +84,12 @@ public class VoxelRenderer : MonoBehaviour
     {
     }
 
-    public bool hasLock;
+    //public bool hasLock;
 
     private void Update()
     {
         ticks++;
-        if (ticks > renderTicks && hasLock)
+        if (ticks > renderTicks)
         {
             ticks = 0;
 
@@ -179,15 +179,23 @@ public class VoxelRenderer : MonoBehaviour
             planetRadius = 1,
             renderOdds = renderOdds,
             voxelData = VoxelWorld.Instance.voxelData,
-            sandColor = new float4(sandColor.r, sandColor.g, sandColor.b, sandColor.a),
-            dirtColor = new float4(dirtColor.r, dirtColor.g, dirtColor.b, dirtColor.a),
-            waterColor = new float4(waterColor.r, waterColor.g, waterColor.b, waterColor.a),
+            sandColor = ColorToFloat4(sandColor),
+            dirtColor = ColorToFloat4(dirtColor),
+            waterColor = ColorToFloat4(waterColor),
             terraform = Input.GetMouseButton(0),
             BrushSize = brushSize,
             VoxWorldDims = VoxelWorld.Instance.VoxWorldDims,
             terraformType = terraformType,
+            skyboxBlueDark = ColorToFloat4(skyboxBlueDark),
+            skyboxBlueLight = ColorToFloat4(skyboxBlueLight),
+            skyboxRed = ColorToFloat4(skyboxRed),
         };
         renderHandle = job.Schedule(pixels.Length, 64);
+    }
+
+    float4 ColorToFloat4(Color c)
+    {
+        return new float4(c.r, c.g, c.b, c.a);
     }
 
     /// <summary>
@@ -199,7 +207,7 @@ public class VoxelRenderer : MonoBehaviour
         pixels = pixelsArr.ToArray();
         for(int i = 0; i < updateQueue.Length; i++)
         {
-            VoxelWorld.Instance.UpdateVoxel(updateQueue[i]);
+            VoxelWorld.Instance.worldUpdateActions.Enqueue(updateQueue[i]);
         }
         pixelsArr.Dispose();
         updateQueue.Dispose();
@@ -268,12 +276,11 @@ public class VoxelRenderer : MonoBehaviour
         const float epsilon = 0.0001f;
         [ReadOnly] public float3 planetCenter;
         [ReadOnly] public float planetRadius;
-        [ReadOnly] public float4 sandColor, dirtColor, waterColor;
+        [ReadOnly] public float4 sandColor, dirtColor, waterColor, skyboxBlueDark, skyboxBlueLight, skyboxRed;
         [ReadOnly] public bool terraform;
         [ReadOnly] public int BrushSize;
         [ReadOnly] public VoxelWorld.VoxelType terraformType;
         [ReadOnly] public VoxelWorld.VoxelWorldDimensions VoxWorldDims;
-
         void IJobParallelFor.Execute(int index)
         {
             int2 uv = to2D(index);
@@ -339,10 +346,16 @@ public class VoxelRenderer : MonoBehaviour
             return odds || evens;
         }
 
+        float invLerp(float from, float to, float value)
+        {
+            return (value - from) / (to - from);
+        }
+
         float4 getColor(RaymarchDDAResult res, Ray origin)
         {
             float4 color = new float4(0, 0, 0, 0);
             float4 albedo = new float4(0, 0, 0, 0);
+            float4 skybox = new float4(0, 0, 0, 0);
 
             if (!res.miss)
             {
@@ -363,6 +376,33 @@ public class VoxelRenderer : MonoBehaviour
                         break;*/
                 }
                 albedo = math.saturate(albedo + d.tint);
+                skybox = float4.zero;
+            }
+            else
+            {
+                float viewAngle = math.dot(origin.direction, new float3(0, 1, 0));
+                if (viewAngle > 0)
+                {
+                    skybox = math.lerp(skyboxBlueLight, skyboxBlueDark, viewAngle);
+                }
+                else
+                {
+                    skybox = math.lerp(skyboxBlueLight, new float4(0,0,0,0), -viewAngle);
+                }
+                /*float blueLight = 0.2f;
+                float redLight = 0.1f;
+                if (viewAngle > blueLight)
+                {
+                    skybox = math.lerp(skyboxBlueLight, skyboxBlueDark, invLerp(blueLight, 1f, viewAngle));
+                }
+                else if (viewAngle > redLight)
+                {
+                    skybox = math.lerp(skyboxRed, skyboxBlueLight, invLerp(redLight, blueLight, viewAngle));
+                }
+                else if (viewAngle  > 0)
+                {
+                    skybox = math.lerp(new float4(0,0,0,0), skyboxRed, invLerp(0f, redLight, viewAngle));
+                }*/
             }
             if (res.distThroughWater > 0)
             {
@@ -370,7 +410,7 @@ public class VoxelRenderer : MonoBehaviour
             }
             float hitDis = res.pathLength;
             float depth = math.exp(-1f / hitDis);
-            color = albedo * depth;
+            color = albedo * depth + skybox;
             return color;
         }
 

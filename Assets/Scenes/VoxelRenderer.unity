@@ -554,7 +554,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   renderTicks: 1
-  downsamples: 2
+  downsamples: 1
   maxRenderDist: 500
   maxVoxStepCount: 250
   gaussianPyramidShader: {fileID: 7200000, guid: c3e7927853acc294c8bc440ad41a5853, type: 3}
@@ -563,8 +563,10 @@ MonoBehaviour:
   sandColor: {r: 1, g: 0.5469046, b: 0, a: 1}
   dirtColor: {r: 0.5471698, g: 0.16577443, b: 0, a: 1}
   waterColor: {r: 0, g: 0.75454235, b: 1, a: 1}
+  skyboxBlueDark: {r: 0.11764707, g: 0.3372549, b: 0.80392164, a: 0}
+  skyboxBlueLight: {r: 0.4431373, g: 0.69411767, b: 0.8470589, a: 0}
+  skyboxRed: {r: 0.8705883, g: 0.2901961, b: 0.015686275, a: 0}
   brushSize: 5
-  hasLock: 0
 --- !u!1 &1714620418
 GameObject:
   m_ObjectHideFlags: 0
@@ -773,7 +775,7 @@ MonoBehaviour:
     worldFront: 100
     worldBack: -100
   renderChunks: 3
-  chunkSize: 16
+  chunkSize: 64
 --- !u!4 &1757045251
 Transform:
   m_ObjectHideFlags: 0
@@ -801,8 +803,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7727c2fec45c42e4d9ef3a34db7c8238, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  frequency: 0.025
+  frequency: 0.01
   tintFrequency: 1
+  mountainHeight: 100
+  terrainNoiseImpact: 1
 --- !u!114 &1757045253
 MonoBehaviour:
   m_ObjectHideFlags: 0

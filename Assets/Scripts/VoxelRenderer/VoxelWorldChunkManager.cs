@@ -2,13 +2,12 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Unity.Mathematics;
+using System.Threading;
 
 public class VoxelWorldChunkManager : MonoBehaviour
 {
     [SerializeField]
     Transform target;
-
-    int currentChunkOffset;
 
     public static VoxelWorldChunkManager Instance;
 
@@ -19,14 +18,33 @@ public class VoxelWorldChunkManager : MonoBehaviour
     {
         Instance = this;
         actionQueue = new Queue<ChunkAction>();
+
+        for (int i = 0; i < 1; i++)
+        {
+            Thread t = new Thread(() => UpdateChunks());
+            t.IsBackground = true;
+            t.Priority = System.Threading.ThreadPriority.Highest;
+            t.Start();
+        }
     }
+
+    Vector3 targetPos;
 
     private void Update()
     {
-        Spawn();
-        if (actionQueue.Count > 0)
+        targetPos = target.position;
+    }
+
+    private void UpdateChunks()
+    {
+        while (true)
         {
-            actionQueue.Dequeue()();
+            Spawn();
+            while (actionQueue.Count > 0)
+            {
+                var a = actionQueue.Dequeue();
+                if (a != null) a();
+            }
         }
     }
 
@@ -40,38 +58,34 @@ public class VoxelWorldChunkManager : MonoBehaviour
 
     void Spawn()
     {
-        int3 mapPos = VoxelWorld.Instance.WorldToVoxWorldPosition(target.position);
+        int3 mapPos = VoxelWorld.Instance.WorldToVoxWorldPosition(targetPos);
         int3 chunkPos = VoxelWorld.Instance.WorldVoxToChunkID(mapPos);
-        int3 lookingAt = chunkPos + to3DOffset(currentChunkOffset);
-        if (!VoxelWorld.Instance.chunks.ContainsKey(lookingAt))
+        for (int x = -VoxelWorld.Instance.RenderChunks / 2; x <= VoxelWorld.Instance.RenderChunks / 2; x++)
         {
-            actionQueue.Enqueue(() => SpawnChunk(lookingAt));
+            for (int y = -VoxelWorld.Instance.RenderChunks / 2; y <= VoxelWorld.Instance.RenderChunks / 2; y++)
+            {
+                for (int z = -VoxelWorld.Instance.RenderChunks / 2; z <= VoxelWorld.Instance.RenderChunks / 2; z++)
+                {
+                    //int3 offset = to3DOffset(currentChunkOffset);
+                    int3 offset = new int3(x, y, z);
+                    int3 lookingAt = chunkPos + offset;
+                    if (!VoxelWorld.Instance.chunks.ContainsKey(lookingAt))
+                    {
+                        actionQueue.Enqueue(() => SpawnChunk(lookingAt));
+                    }
+                }
+            }
         }
-        // update currentChunk
-        /*currentChunkOffset.x++;
-        if (currentChunkOffset.x >= VoxelWorld.Instance.RenderChunks/2)
-        {
-            currentChunkOffset.x = -VoxelWorld.Instance.RenderChunks / 2;
-            currentChunkOffset.y++;
-        }
-        if (currentChunkOffset.y >= VoxelWorld.Instance.RenderChunks / 2)
-        {
-            currentChunkOffset.y = -VoxelWorld.Instance.RenderChunks / 2;
-            currentChunkOffset.z++;
-        }
-        if (currentChunkOffset.y >= VoxelWorld.Instance.RenderChunks / 2)
-        {
-            currentChunkOffset.z = -VoxelWorld.Instance.RenderChunks / 2;
-        }*/
-        currentChunkOffset++;
-        currentChunkOffset %= (VoxelWorld.Instance.RenderChunks * VoxelWorld.Instance.RenderChunks * VoxelWorld.Instance.RenderChunks);
+       
+        //currentChunkOffset++;
+        //currentChunkOffset %= (VoxelWorld.Instance.RenderChunks * VoxelWorld.Instance.RenderChunks * VoxelWorld.Instance.RenderChunks);
     }
 
     void SpawnChunk(int3 id)
     {
         VoxelWorldChunk voxelWorldChunk = new VoxelWorldChunk(id);
         Load(id);
-        VoxelWorld.Instance.chunks.Add(id, voxelWorldChunk);
+        VoxelWorld.Instance.chunks.TryAdd(id, voxelWorldChunk);
     }
 
     public void Load(int3 id)
@@ -86,14 +100,13 @@ public class VoxelWorldChunkManager : MonoBehaviour
                 {
                     int3 localVoxPos = new int3(x, y, z);
                     int3 worldVoxPos = chunkOriginInVoxSpace + localVoxPos;
-                    float3 noiseSample = worldVoxPos;
-                    float noise = VoxelWorldNoise.Instance.TerrainNoise.GetNoise(noiseSample.x, noiseSample.y, noiseSample.z);
+                    float noise = VoxelWorldNoise.Instance.GetTerrainNoise(worldVoxPos);
                     if (noise < 0)
                     {
                         VoxelWorld.VoxelType vt = VoxelWorld.VoxelType.DIRT;
-                        float tint = VoxelWorldNoise.Instance.TintNoise.GetNoise(noiseSample.x, noiseSample.y, noiseSample.z) * 0.1f;
-                        //VoxelWorld.Instance.AddVoxel(worldVoxPos, new VoxelWorld.VoxelData() { t = vt, tint = tint });
-                        VoxelWorld.Instance.voxelData.TryAdd(worldVoxPos, new VoxelWorld.VoxelData() { t = vt, tint = tint });
+                        float tint = VoxelWorldNoise.Instance.GetTintNoise(worldVoxPos);
+                        VoxelWorld.Instance.AddVoxel(worldVoxPos, new VoxelWorld.VoxelData() { t = vt, tint = tint });
+                        //VoxelWorld.Instance.voxelData.TryAdd(worldVoxPos, new VoxelWorld.VoxelData() { t = vt, tint = tint });
                     }
                 }
             }
