@@ -18,6 +18,20 @@ public class VoxelWorld : MonoBehaviour
     [Header("World settings")]
     [SerializeField]
     VoxelWorldDimensions dims;
+    [SerializeField]
+    int renderChunks;
+    [SerializeField]
+    int chunkSize;
+
+    public int ChunkSize
+    {
+        get { return chunkSize; }
+    }
+    public int RenderChunks
+    {
+        get { return renderChunks; }
+    }
+
 
     public VoxelWorldDimensions VoxWorldDims
     {
@@ -25,6 +39,7 @@ public class VoxelWorld : MonoBehaviour
     }
 
     public static VoxelWorld Instance;
+    Camera cam;
 
     //CoroutineQueue worldUpdateActions;
     delegate void WorldUpdateAction();
@@ -53,6 +68,7 @@ public class VoxelWorld : MonoBehaviour
     }
 
     public NativeParallelHashMap<int3, VoxelData> voxelData;
+    public NativeParallelHashMap<int3, VoxelWorldChunk> chunks;
     //public NativeParallelHashSet<int3> voxelsToUpdate;
 
     static int3 UP = new int3(0, 1, 0);
@@ -61,11 +77,11 @@ public class VoxelWorld : MonoBehaviour
 
     private void Awake()
     {
-        voxelData = new NativeParallelHashMap<int3, VoxelData>(10000, Allocator.Persistent);
-        //voxelsToUpdate = new NativeParallelHashSet<int3>(10000, Allocator.Persistent);
+        Instance = this;
 
         worldUpdateActions = new Queue<WorldUpdateAction>();
-        Instance = this;
+        voxelData = new NativeParallelHashMap<int3, VoxelData>(10000, Allocator.Persistent);
+        chunks = new NativeParallelHashMap<int3, VoxelWorldChunk>(10000, Allocator.Persistent);
     }
     // Start is called before the first frame update
     void Start()
@@ -88,6 +104,7 @@ public class VoxelWorld : MonoBehaviour
     private void OnDestroy()
     {
         voxelData.Dispose();
+        chunks.Dispose();
         //voxelsToUpdate.Dispose();
     }
 
@@ -117,6 +134,17 @@ public class VoxelWorld : MonoBehaviour
             Thread.Sleep(10);
         }
     }
+
+    #region Math
+    public int3 WorldToVoxWorldPosition(float3 pos)
+    {
+        return new int3(pos);
+    }
+    public int3 WorldVoxToChunkID(int3 mapPos)
+    {
+        return mapPos / ChunkSize;
+    }
+    #endregion
 
     #region Voxel Physics Logic
     bool WaterPhysics(int3 pos, ref int3 newPos)

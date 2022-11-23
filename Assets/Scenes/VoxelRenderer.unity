@@ -315,7 +315,7 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 45.6
+  m_fontSize: 45.05
   m_fontSizeBase: 36
   m_fontWeight: 400
   m_enableAutoSizing: 1
@@ -744,6 +744,8 @@ GameObject:
   m_Component:
   - component: {fileID: 1757045251}
   - component: {fileID: 1757045250}
+  - component: {fileID: 1757045252}
+  - component: {fileID: 1757045253}
   m_Layer: 0
   m_Name: Voxel World
   m_TagString: Untagged
@@ -763,13 +765,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: af9fe0f17be99174cb8e4748d247e465, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  updateRequestsProcessCount: 10000
+  updateRequestsProcessCount: 1000
   dims:
     worldBottom: -100
     worldLeft: -100
     worldRight: 100
     worldFront: 100
     worldBack: -100
+  renderChunks: 3
+  chunkSize: 16
 --- !u!4 &1757045251
 Transform:
   m_ObjectHideFlags: 0
@@ -785,3 +789,30 @@ Transform:
   m_Father: {fileID: 0}
   m_RootOrder: 4
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1757045252
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1757045249}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7727c2fec45c42e4d9ef3a34db7c8238, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  frequency: 0.025
+  tintFrequency: 1
+--- !u!114 &1757045253
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1757045249}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 39d5960eb556b254e91e95b4911b9fba, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  target: {fileID: 1399788334}
