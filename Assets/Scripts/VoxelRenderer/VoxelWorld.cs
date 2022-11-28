@@ -20,8 +20,12 @@ public class VoxelWorld : MonoBehaviour
     VoxelWorldDimensions dims;
     [SerializeField]
     int renderChunks;
+    [SerializeField, Tooltip("Number of chunks to load per tick")]
+    int numChunksPerTick;
     [SerializeField]
     int chunkSize;
+    [SerializeField]
+    Transform target;
 
     public int ChunkSize
     {
@@ -78,7 +82,6 @@ public class VoxelWorld : MonoBehaviour
     public NativeParallelHashMap<int3, VoxelData> voxelData;
     public NativeParallelHashMap<int3, VoxelWorldChunk> chunks;
     public NativeQueue<int3> worldUpdateActions;
-    //public NativeParallelHashSet<int3> voxelsToUpdate;
 
     private void Awake()
     {
@@ -128,10 +131,16 @@ public class VoxelWorld : MonoBehaviour
                 RIGHT = RIGHT,
                 FORWARD = FORWARD,
                 updateRequestsProcessCount = updateRequestsProcessCount,
+                chunks = chunks,
+                targetPos = target.position,
+                renderChunks = renderChunks,
+                chunkSize = chunkSize,
+                numChunksPerTick = numChunksPerTick,
             };
             updateJobHandle = job.Schedule();
             updateJobHandle.Complete();
             updating = true;
+            //VoxelRenderer.Instance.voxelQueue.Enqueue(VoxelWorldChunkManager.Instance.LoadChunks);
             VoxelRenderer.Instance.voxelQueue.Enqueue(VoxelRenderer.Instance.StartRender);
             print(worldUpdateActions.Count);
         }
@@ -166,6 +175,8 @@ public class VoxelWorld : MonoBehaviour
         public NativeParallelHashMap<int3, VoxelData> voxelData;
         [NativeDisableParallelForRestriction]
         public NativeQueue<int3> worldUpdateActions;
+        [NativeDisableParallelForRestriction]
+        public NativeParallelHashMap<int3, VoxelWorldChunk> chunks;
 
         [ReadOnly] public VoxelWorldDimensions dims;
 
@@ -174,17 +185,88 @@ public class VoxelWorld : MonoBehaviour
         [ReadOnly] public int3 FORWARD;
         [ReadOnly] public int updateRequestsProcessCount;
 
+        [ReadOnly] public int renderChunks;
+        [ReadOnly] public float3 targetPos;
+        [ReadOnly] public int chunkSize;
+        [ReadOnly] public int numChunksPerTick;
+
         public void Execute()
         {
+            LoadChunks();
             for(int i = 0; i < updateRequestsProcessCount && i < worldUpdateActions.Count; i++)
             {
                 UpdateVoxelAction(worldUpdateActions.Dequeue());
             }
         }
 
-        #region Voxel Physics Logic
-        bool WaterPhysics(int3 pos, ref int3 newPos)
+        public int3 WorldToVoxWorldPosition(float3 pos)
         {
+            return new int3(pos);
+        }
+        public int3 WorldVoxToChunkID(int3 mapPos)
+        {
+            return mapPos / chunkSize;
+        }
+
+        void LoadChunks()
+        {
+            int3 mapPos = WorldToVoxWorldPosition(targetPos);
+            int3 chunkPos = WorldVoxToChunkID(mapPos);
+            int chunksCreated = 0;
+            for (int x = -renderChunks / 2; x <= renderChunks / 2; x++)
+            {
+                for (int y = -renderChunks / 2; y <= renderChunks / 2; y++)
+                {
+                    for (int z = -renderChunks / 2; z <= renderChunks / 2; z++)
+                    {
+                        if (chunksCreated > numChunksPerTick) return;
+                        int3 offset = new int3(x, y, z);
+                        int3 lookingAt = chunkPos + offset;
+                        if (!chunks.ContainsKey(lookingAt))
+                        {
+                            VoxelWorldChunk voxelWorldChunk = new VoxelWorldChunk()
+                            {
+                                id = lookingAt,
+                            };
+                            if (chunks.TryAdd(lookingAt, voxelWorldChunk))
+                            {
+                                Load(lookingAt);
+                                chunksCreated++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        public void Load(int3 id)
+        {
+            int3 chunkOriginInVoxSpace = id * chunkSize;
+            for (int x = 0; x < chunkSize; x++)
+            {
+                for (int y = 0; y < chunkSize; y++)
+                {
+                    for (int z = 0; z < chunkSize; z++)
+                    {
+                        int3 localVoxPos = new int3(x, y, z);
+                        int3 worldVoxPos = chunkOriginInVoxSpace + localVoxPos;
+                        float noise = VoxelWorldNoise.Instance.GetTerrainNoise(worldVoxPos);
+                        if (noise < 0)
+                        {
+                            VoxelWorld.VoxelType vt = VoxelWorld.VoxelType.DIRT;
+                            //float tint = VoxelWorldNoise.Instance.GetTintNoise(worldVoxPos);
+                            float tint = math.sin(x + y + z) * 0.1f;
+                            //VoxelWorld.Instance.AddVoxel(worldVoxPos, new VoxelWorld.VoxelData() { t = vt, tint = tint });
+                            voxelData.TryAdd(worldVoxPos, new VoxelWorld.VoxelData() { t = vt, tint = tint });
+                        }
+                    }
+                }
+            }
+        }
+
+        #region Voxel Physics Logic
+        bool WaterPhysics(int3 pos)
+        {
+            if (!voxelData.ContainsKey(pos)) return false;
             VoxelData data = voxelData[pos];
             if (!SandPhysics(pos))
             {
@@ -193,7 +275,6 @@ public class VoxelWorld : MonoBehaviour
                 {
                     voxelData.Remove(pos);
                     voxelData.Add(pos - RIGHT, data);
-                    newPos = pos - RIGHT;
                     QueueUpdateVoxel(pos - RIGHT);
                     return true;
                 }
@@ -201,7 +282,6 @@ public class VoxelWorld : MonoBehaviour
                 {
                     voxelData.Remove(pos);
                     voxelData.Add(pos + RIGHT, data);
-                    newPos = pos + RIGHT;
                     QueueUpdateVoxel(pos + RIGHT);
                     return true;
                 }
@@ -209,7 +289,6 @@ public class VoxelWorld : MonoBehaviour
                 {
                     voxelData.Remove(pos);
                     voxelData.Add(pos - FORWARD, data);
-                    newPos = pos - FORWARD;
                     QueueUpdateVoxel(pos - FORWARD);
                     return true;
                 }
@@ -217,7 +296,6 @@ public class VoxelWorld : MonoBehaviour
                 {
                     voxelData.Remove(pos);
                     voxelData.Add(pos + FORWARD, data);
-                    newPos = pos + FORWARD;
                     QueueUpdateVoxel(pos + FORWARD);
                     return true;
                 }
@@ -226,7 +304,6 @@ public class VoxelWorld : MonoBehaviour
                 {
                     voxelData.Remove(pos);
                     voxelData.Add(pos - RIGHT - FORWARD, data);
-                    newPos = pos - RIGHT - FORWARD;
                     QueueUpdateVoxel(pos - RIGHT - FORWARD);
                     return true;
                 }
@@ -234,7 +311,6 @@ public class VoxelWorld : MonoBehaviour
                 {
                     voxelData.Remove(pos);
                     voxelData.Add(pos + RIGHT - FORWARD, data);
-                    newPos = pos + RIGHT - FORWARD;
                     QueueUpdateVoxel(pos + RIGHT - FORWARD);
                     return true;
                 }
@@ -242,7 +318,6 @@ public class VoxelWorld : MonoBehaviour
                 {
                     voxelData.Remove(pos);
                     voxelData.Add(pos + RIGHT + FORWARD, data);
-                    newPos = pos + RIGHT + FORWARD;
                     QueueUpdateVoxel(pos + RIGHT + FORWARD);
                     return true;
                 }
@@ -250,14 +325,15 @@ public class VoxelWorld : MonoBehaviour
                 {
                     voxelData.Remove(pos);
                     voxelData.Add(pos + FORWARD - RIGHT, data);
-                    newPos = pos + FORWARD - RIGHT;
                     QueueUpdateVoxel(pos + FORWARD - RIGHT);
                     return true;
                 }
+                else
+                {
+                    return false;
+                }
             }
-            newPos = pos;
-            QueueUpdateVoxel(pos);
-            return false;
+            return true;
         }
         bool SandPhysics(int3 pos)
         {
@@ -334,11 +410,23 @@ public class VoxelWorld : MonoBehaviour
 
         void QueueUpdateVoxel(int3 pos)
         {
-            if (!voxelData.ContainsKey(pos)) return;
-            VoxelData data = voxelData[pos];
-            data.staleTicks = 0;
-            voxelData[pos] = data;
-            worldUpdateActions.Enqueue(pos);
+            //for(int x = -1; x <= 1; x++)
+            {
+                //for (int y = -1; y <= 1; y++)
+                {
+                    //for (int z = -1; z <= 1; z++)
+                    {
+                        //int3 offset = new int3(x, y, z);
+                        int3 offset = int3.zero;
+                        int3 p = pos + offset;
+                        if (!voxelData.ContainsKey(p)) return;
+                        VoxelData data = voxelData[p];
+                        data.staleTicks = 0;
+                        voxelData[p] = data;
+                        worldUpdateActions.Enqueue(p);
+                    }
+                }
+            }
         }
 
         void UpdateVoxelAction(int3 pos)
@@ -352,8 +440,7 @@ public class VoxelWorld : MonoBehaviour
                 switch (data.t)
                 {
                     case VoxelType.WATER:
-                        int3 newpos = pos;
-                        wasUpdated = WaterPhysics(pos, ref newpos);
+                        wasUpdated = WaterPhysics(pos);
                         break;
                     case VoxelType.SAND:
                         // if bottom cell is empty, move there

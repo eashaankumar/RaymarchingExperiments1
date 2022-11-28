@@ -767,15 +767,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: af9fe0f17be99174cb8e4748d247e465, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  updateRequestsProcessCount: 50
+  updateRequestsProcessCount: 100000
   dims:
     worldBottom: -100
     worldLeft: -100
     worldRight: 100
     worldFront: 100
     worldBack: -100
-  renderChunks: 3
-  chunkSize: 8
+  renderChunks: 10
+  numChunksPerTick: 3
+  chunkSize: 32
+  target: {fileID: 1399788334}
 --- !u!4 &1757045251
 Transform:
   m_ObjectHideFlags: 0
