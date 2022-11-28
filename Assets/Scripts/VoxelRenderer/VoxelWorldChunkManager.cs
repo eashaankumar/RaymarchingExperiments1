@@ -19,13 +19,13 @@ public class VoxelWorldChunkManager : MonoBehaviour
         Instance = this;
         actionQueue = new Queue<ChunkAction>();
 
-        for (int i = 0; i < 1; i++)
+        /*for (int i = 0; i < 1; i++)
         {
             Thread t = new Thread(() => UpdateChunks());
             t.IsBackground = true;
             t.Priority = System.Threading.ThreadPriority.Highest;
             t.Start();
-        }
+        }*/
     }
 
     Vector3 targetPos;

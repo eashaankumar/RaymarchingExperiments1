@@ -767,7 +767,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: af9fe0f17be99174cb8e4748d247e465, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  updateRequestsProcessCount: 1000
+  updateRequestsProcessCount: 50
   dims:
     worldBottom: -100
     worldLeft: -100
@@ -775,7 +775,7 @@ MonoBehaviour:
     worldFront: 100
     worldBack: -100
   renderChunks: 3
-  chunkSize: 64
+  chunkSize: 8
 --- !u!4 &1757045251
 Transform:
   m_ObjectHideFlags: 0

@@ -62,9 +62,14 @@ public class VoxelRenderer : MonoBehaviour
         get { return renderInProgess; }
     }
 
+    public delegate void VoxelDelegate();
+    public Queue<VoxelDelegate> voxelQueue;
+
+
     private void Awake()
     {
-        Instance = this;    
+        Instance = this;
+        voxelQueue = new Queue<VoxelDelegate>();
     }
 
     void Start()
@@ -77,11 +82,12 @@ public class VoxelRenderer : MonoBehaviour
         blurKernel = gaussianPyramidShader.FindKernel("Blur");
         upsampleKernel = gaussianPyramidShader.FindKernel("Upsample");
 
-        StartRender();
+        voxelQueue.Enqueue(StartRender);
     }
 
     private void OnDestroy()
     {
+        renderHandle.Complete();
     }
 
     //public bool hasLock;
@@ -93,18 +99,22 @@ public class VoxelRenderer : MonoBehaviour
         {
             ticks = 0;
 
-            if (!renderInProgess)
+            /*if (!renderInProgess)
             {
-                StartRender();
-            }
+                voxelQueue.Enqueue(StartRender);
+            }*/
 
             if (renderHandle.IsCompleted && pixelsArr.IsCreated && renderInProgess) 
             {
-                FinishRender();
+                voxelQueue.Enqueue(FinishRender);
             }
             else
             {
             }
+        }
+        if (voxelQueue.Count > 0)
+        {
+            voxelQueue.Dequeue()();
         }
     }
 
@@ -156,7 +166,7 @@ public class VoxelRenderer : MonoBehaviour
     /// <summary>
     /// Queues job for rendering to texture
     /// </summary>
-    private void StartRender()
+    public void StartRender()
     {
         renderInProgess = true;
 
@@ -216,7 +226,7 @@ public class VoxelRenderer : MonoBehaviour
         tex.SetPixelData<float4>(pixels, 0);
         tex.Apply();
 
-
+        voxelQueue.Enqueue(VoxelWorld.Instance.VoxelWorldUpdate);
 
         // gaussian pyramid
         // copy
@@ -357,7 +367,7 @@ public class VoxelRenderer : MonoBehaviour
             float4 albedo = new float4(0, 0, 0, 0);
             float4 skybox = new float4(0, 0, 0, 0);
 
-            if (!res.miss)
+            if (!res.miss && voxelData.ContainsKey(res.mapPos))
             {
                 //float3 hitPoint = origin.origin + origin.direction * hitDis;
                 //float3 normal = math.normalize(hitPoint - float3.zero);
