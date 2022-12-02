@@ -8,6 +8,8 @@ public class VoxelWorldPlayer : MonoBehaviour
     [SerializeField]
     float moveSpeed;
     [SerializeField]
+    float jumpSpeed;
+    [SerializeField]
     float gravityAcc = 9.81f;
     [SerializeField, Tooltip("Player height in voxels")]
     int playerHeight;
@@ -26,10 +28,10 @@ public class VoxelWorldPlayer : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        //float forwardInput = Input.GetAxis("Vertical");
-        //float lateralInput = Input.GetAxis("Horizontal");
-        //Vector3 moveDir = (transform.forward * forwardInput + transform.right * lateralInput).normalized;
-        //Vector3 moveVel = moveDir * moveSpeed;
+        float forwardInput = Input.GetAxis("Vertical");
+        float lateralInput = Input.GetAxis("Horizontal");
+        Vector3 moveDir = (transform.forward * forwardInput + transform.right * lateralInput).normalized;
+        Vector3 moveVel = moveDir * moveSpeed;
         int3 playerEyesPosInVoxelSpace = ToInt3(transform.position);
         int3 playerFeetPosInVoxelSpace = playerEyesPosInVoxelSpace + DOWN * (playerHeight-1);
         Vector3 accelerationDueToGravity = Vector3.down * gravityAcc;
@@ -43,6 +45,7 @@ public class VoxelWorldPlayer : MonoBehaviour
         {
             for(int i = 0; i < playerHeight; i++)
             {
+                bool found = false;
                 correctFeetVox = playerEyesPosInVoxelSpace + DOWN * i;
                 if (VoxelWorld.Instance.voxelData.ContainsKey(correctFeetVox))
                 {
@@ -51,19 +54,24 @@ public class VoxelWorldPlayer : MonoBehaviour
                         case VoxelWorld.VoxelType.SAND:
                         case VoxelWorld.VoxelType.DIRT:
                             isOnGround = true;
+                            found = true;
                             break;
                         default:
                             isOnGround = false;
                             break;
                     }
-                    break;
+                    if(found) break;
                 }
             }
         }
         if (isOnGround)
         {
             velocity.y = 0;
-            Vector3 newPos = transform.position + velocity * Time.deltaTime;
+            if (Input.GetKey(KeyCode.Space))
+            {
+                velocity.y = jumpSpeed;
+            }
+            Vector3 newPos = transform.position + (velocity + moveVel) * Time.deltaTime;
             newPos.y = ToVec3(correctFeetVox - DOWN * (playerHeight)).y;
             transform.position = newPos;
             
@@ -71,7 +79,7 @@ public class VoxelWorldPlayer : MonoBehaviour
         else
         {
             velocity = (velocity + accelerationDueToGravity * Time.deltaTime);
-            transform.position += velocity * Time.deltaTime;
+            transform.position += (velocity + moveVel) * Time.deltaTime;
         }
 
     }
