@@ -34,13 +34,16 @@ public class VoxelRenderer : MonoBehaviour
     [SerializeField]
     int brushSize;
 
+    [Header("Scene")]
+    [SerializeField]
+    Light sun;
+
     int blurKernel, upsampleKernel;
     int ticks;
 
     Texture2D tex;
     RenderTexture[] pyramid;
     Camera cam;
-    Light sun;
 
     int width, height;
 
@@ -77,7 +80,6 @@ public class VoxelRenderer : MonoBehaviour
         ticks = 0;
 
         cam = Camera.main;
-        sun = FindObjectOfType<Light>();
 
         blurKernel = gaussianPyramidShader.FindKernel("Blur");
         upsampleKernel = gaussianPyramidShader.FindKernel("Upsample");
@@ -184,6 +186,7 @@ public class VoxelRenderer : MonoBehaviour
             height = height,
             _CameraToWorld = cam.cameraToWorldMatrix,
             _CameraInverseProjection = cam.projectionMatrix.inverse,
+            sunDir = sun.transform.forward,
             maxVoxStepCount = maxVoxStepCount,
             planetCenter = new float3(0, 0, 0),
             planetRadius = 1,
@@ -280,6 +283,7 @@ public class VoxelRenderer : MonoBehaviour
         [ReadOnly] public int height;
         [ReadOnly] public float4x4 _CameraToWorld;
         [ReadOnly] public float4x4 _CameraInverseProjection;
+        [ReadOnly] public float3 sunDir;
         [ReadOnly] public int maxVoxStepCount;
         [ReadOnly] public bool renderOdds;
 
@@ -375,6 +379,7 @@ public class VoxelRenderer : MonoBehaviour
             float4 color = new float4(0, 0, 0, 0);
             float4 albedo = new float4(0, 0, 0, 0);
             float4 skybox = new float4(0, 0, 0, 0);
+            float4 shadowColor = new float4(0, 0, 0, 0);
 
             if (!res.miss && voxelData.ContainsKey(res.mapPos))
             {
@@ -408,29 +413,30 @@ public class VoxelRenderer : MonoBehaviour
                 {
                     skybox = math.lerp(skyboxBlueLight, new float4(0,0,0,0), -viewAngle);
                 }
-                /*float blueLight = 0.2f;
-                float redLight = 0.1f;
-                if (viewAngle > blueLight)
-                {
-                    skybox = math.lerp(skyboxBlueLight, skyboxBlueDark, invLerp(blueLight, 1f, viewAngle));
-                }
-                else if (viewAngle > redLight)
-                {
-                    skybox = math.lerp(skyboxRed, skyboxBlueLight, invLerp(redLight, blueLight, viewAngle));
-                }
-                else if (viewAngle  > 0)
-                {
-                    skybox = math.lerp(new float4(0,0,0,0), skyboxRed, invLerp(0f, redLight, viewAngle));
-                }*/
             }
             if (res.distThroughWater > 0)
             {
                 albedo = waterColor + albedo * (1-math.exp(- 1f / res.distThroughWater));
             }
             float hitDis = res.pathLength;
+
+            if (IsInShadow(/*origin.origin + origin.direction * hitDis*/ res.mapPos)) // use res.mapPos for per-vox shadows
+            {
+                shadowColor = new float4(1, 1, 1, 1) * -0.25f;
+            }
+
             float depth = math.exp(-1f / hitDis);
-            color = albedo * depth + skybox;
+            color = albedo * depth + skybox + shadowColor;
             return color;
+        }
+
+        bool IsInShadow(float3 origin)
+        {
+            Ray shadowRay = CreateRay(origin, -sunDir);
+            //float3 deltaDist = math.abs(new float3(1, 1, 1) * math.length(shadowRay.direction) / shadowRay.direction);
+            shadowRay.origin += shadowRay.direction * epsilon * 2;
+            RaymarchDDAResult res = raymarchDDA(shadowRay.origin, shadowRay.direction, maxVoxStepCount/2, true);
+            return !res.miss;
         }
 
         float sdfSphere(float3 p, float3 center, float radius)
@@ -473,7 +479,7 @@ public class VoxelRenderer : MonoBehaviour
             return voxelData.ContainsKey(mapPos) && voxelData[mapPos].t == VoxelWorld.VoxelType.WATER;
         }
 
-        RaymarchDDAResult raymarchDDA(float3 o, float3 dir, int maxStepCount)
+        RaymarchDDAResult raymarchDDA(float3 o, float3 dir, int maxStepCount, bool ignoreSelf=false)
         {
             // https://www.shadertoy.com/view/4dX3zl
             float3 p = o;
@@ -488,15 +494,11 @@ public class VoxelRenderer : MonoBehaviour
             bool miss = false;
             float pathLength = 0;
             float distThroughWater = 0;
-            //CheckRayHitsTriangle hits;
             for (int i = 0; i < maxStepCount; i++)
             {
-                /*hits = hitsSurface(mapPos, o + dir * pathLength, dir, o + getVoxelExitOffset(sideDist, deltaDist));
-                if (hits.hits)
-                {
-                    break;
-                }*/
-                if (DDAHit(mapPos)) break;
+                if (i == 0 && ignoreSelf) { }
+                else if (DDAHit(mapPos)) break;
+
                 if (sideDist.x < sideDist.y)
                 {
                     if (sideDist.x < sideDist.z)
