@@ -23,6 +23,8 @@ public class VoxelWorld : MonoBehaviour
     [SerializeField, Tooltip("Number of chunks to load per tick")]
     int numChunksPerTick;
     [SerializeField]
+    int updateTicks;
+    [SerializeField]
     int chunkSize;
     [SerializeField]
     Transform target;
@@ -37,6 +39,13 @@ public class VoxelWorld : MonoBehaviour
     }
 
     bool updating;
+
+    public bool Updating
+    {
+        get { return updating; }
+    }
+
+    int currentUpdateTicks;
 
     public VoxelWorldDimensions VoxWorldDims
     {
@@ -88,12 +97,12 @@ public class VoxelWorld : MonoBehaviour
         Instance = this;
 
         worldUpdateActions = new NativeQueue<int3>(Allocator.Persistent);
-        voxelData = new NativeParallelHashMap<int3, VoxelData>(10000, Allocator.Persistent);
-        chunks = new NativeParallelHashMap<int3, VoxelWorldChunk>(10000, Allocator.Persistent);
+        voxelData = new NativeParallelHashMap<int3, VoxelData>(100000, Allocator.Persistent);
+        chunks = new NativeParallelHashMap<int3, VoxelWorldChunk>(100000, Allocator.Persistent);
     }
     void Start()
     {
-        
+        currentUpdateTicks = 0;
     }
 
     private void OnDestroy()
@@ -110,13 +119,16 @@ public class VoxelWorld : MonoBehaviour
     // Update is called once per frame
     public void VoxelWorldUpdate()
     {
-        /*if (updateJobHandle.IsCompleted)
+        StartCoroutine(PerformUpdate());
+        
+    }
+
+    IEnumerator PerformUpdate()
+    {
+        currentUpdateTicks++;
+        if (currentUpdateTicks >= updateTicks)
         {
-            updateJobHandle.Complete();
-            updating = false;
-        }*/
-        //if (!VoxelRenderer.Instance.RenderInProgress)
-        {
+            currentUpdateTicks = 0;
             int x = (dims.worldLeft + dims.worldRight) / 2;
             int y = (100);
             int z = (dims.worldBack + dims.worldFront) / 2;
@@ -137,13 +149,13 @@ public class VoxelWorld : MonoBehaviour
                 chunkSize = chunkSize,
                 numChunksPerTick = numChunksPerTick,
             };
-            updateJobHandle = job.Schedule();
-            updateJobHandle.Complete();
             updating = true;
-            //VoxelRenderer.Instance.voxelQueue.Enqueue(VoxelWorldChunkManager.Instance.LoadChunks);
-            VoxelRenderer.Instance.voxelQueue.Enqueue(VoxelRenderer.Instance.StartRender);
-            print(worldUpdateActions.Count);
+            updateJobHandle = job.Schedule();
+            yield return new WaitUntil(() => updateJobHandle.IsCompleted);
+            updateJobHandle.Complete();
+            updating = false;
         }
+        VoxelRenderer.Instance.voxelQueue.Enqueue(VoxelRenderer.Instance.StartRender);
     }
 
     #region Math
@@ -253,8 +265,8 @@ public class VoxelWorld : MonoBehaviour
                         if (noise < 0)
                         {
                             VoxelWorld.VoxelType vt = VoxelWorld.VoxelType.DIRT;
-                            //float tint = VoxelWorldNoise.Instance.GetTintNoise(worldVoxPos);
-                            float tint = math.sin(x + y + z) * 0.1f;
+                            float tint = VoxelWorldNoise.Instance.GetTintNoise(worldVoxPos);
+                            //float tint = math.sin(x + y + z) * 0.1f;
                             //VoxelWorld.Instance.AddVoxel(worldVoxPos, new VoxelWorld.VoxelData() { t = vt, tint = tint });
                             voxelData.TryAdd(worldVoxPos, new VoxelWorld.VoxelData() { t = vt, tint = tint });
                         }

@@ -365,6 +365,37 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 758648932}
   m_CullTransparentMesh: 1
+--- !u!1 &1218418992
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1218418993}
+  m_Layer: 0
+  m_Name: Player
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1218418993
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1218418992}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 5
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1239661874
 GameObject:
   m_ObjectHideFlags: 0
@@ -454,6 +485,7 @@ GameObject:
   - component: {fileID: 1399788332}
   - component: {fileID: 1399788336}
   - component: {fileID: 1399788337}
+  - component: {fileID: 1399788338}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -520,7 +552,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1399788331}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1, z: -10}
+  m_LocalPosition: {x: 0, y: 8, z: -10}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -540,7 +572,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   lookSensitivity: 1
-  moveSpeed: 10
+  moveSpeed: 0
 --- !u!114 &1399788337
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -567,6 +599,21 @@ MonoBehaviour:
   skyboxBlueLight: {r: 0.4431373, g: 0.69411767, b: 0.8470589, a: 0}
   skyboxRed: {r: 0.8705883, g: 0.2901961, b: 0.015686275, a: 0}
   brushSize: 5
+--- !u!114 &1399788338
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1399788331}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: aea0fa70d529e0e41bd961746d359f72, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  moveSpeed: 4
+  gravityAcc: 9.81
+  playerHeight: 8
 --- !u!1 &1714620418
 GameObject:
   m_ObjectHideFlags: 0
@@ -775,8 +822,9 @@ MonoBehaviour:
     worldFront: 100
     worldBack: -100
   renderChunks: 10
-  numChunksPerTick: 3
-  chunkSize: 32
+  numChunksPerTick: 1
+  updateTicks: 0
+  chunkSize: 16
   target: {fileID: 1399788334}
 --- !u!4 &1757045251
 Transform:
@@ -808,7 +856,7 @@ MonoBehaviour:
   frequency: 0.01
   tintFrequency: 1
   mountainHeight: 100
-  terrainNoiseImpact: 1
+  terrainNoiseImpact: 0.3
 --- !u!114 &1757045253
 MonoBehaviour:
   m_ObjectHideFlags: 0

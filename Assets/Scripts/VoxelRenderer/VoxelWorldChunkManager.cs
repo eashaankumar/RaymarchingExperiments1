@@ -54,7 +54,7 @@ public class VoxelWorldChunkManager : MonoBehaviour
         job.Schedule().Complete();*/
     }
 
-    [BurstCompile]
+    /*[BurstCompile]
     struct LoadChunkJob : IJob
     {
         [ReadOnly] 
@@ -119,5 +119,5 @@ public class VoxelWorldChunkManager : MonoBehaviour
                 }
             }
         }
-    }
+    }*/
 }

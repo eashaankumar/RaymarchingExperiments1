@@ -192,7 +192,7 @@ public class VoxelRenderer : MonoBehaviour
             sandColor = ColorToFloat4(sandColor),
             dirtColor = ColorToFloat4(dirtColor),
             waterColor = ColorToFloat4(waterColor),
-            terraform = Input.GetMouseButton(0),
+            terraform = Input.GetMouseButton(0) ? -1 : (Input.GetMouseButton(1) ? 1 : 0),
             BrushSize = brushSize,
             VoxWorldDims = VoxelWorld.Instance.VoxWorldDims,
             terraformType = terraformType,
@@ -287,7 +287,7 @@ public class VoxelRenderer : MonoBehaviour
         [ReadOnly] public float3 planetCenter;
         [ReadOnly] public float planetRadius;
         [ReadOnly] public float4 sandColor, dirtColor, waterColor, skyboxBlueDark, skyboxBlueLight, skyboxRed;
-        [ReadOnly] public bool terraform;
+        [ReadOnly] public int terraform;
         [ReadOnly] public int BrushSize;
         [ReadOnly] public VoxelWorld.VoxelType terraformType;
         [ReadOnly] public VoxelWorld.VoxelWorldDimensions VoxWorldDims;
@@ -311,7 +311,7 @@ public class VoxelRenderer : MonoBehaviour
             float4 color = getColor(rs, ray);
             pixels[index] = color;
 
-            if (terraform)
+            if (terraform != 0)
             {
                 Terraform(rs.mapPos, uv, width, height);
             }
@@ -336,9 +336,18 @@ public class VoxelRenderer : MonoBehaviour
                         {
                             int3 offset = new int3(x, y, z);
                             int3 newMapPos = mapPos + offset;
-                            if (!IsVoxInBounds(newMapPos) || voxelData.ContainsKey(newMapPos)) continue;
-                            voxelData.Add(newMapPos, new VoxelWorld.VoxelData() { t = terraformType, tint=math.sin(newMapPos.x + newMapPos.y + newMapPos.z) * 0.1f});
-                            updateQueue.Add(newMapPos);
+                            if (terraform == -1)
+                            {
+                                if (/*!IsVoxInBounds(newMapPos) ||*/ voxelData.ContainsKey(newMapPos)) continue;
+                                voxelData.Add(newMapPos, new VoxelWorld.VoxelData() { t = terraformType, tint = math.sin(newMapPos.x + newMapPos.y + newMapPos.z) * 0.1f });
+                                updateQueue.Add(newMapPos);
+                            }
+                            else if (terraform == 1)
+                            {
+                                if (!voxelData.ContainsKey(newMapPos)) continue;
+                                voxelData.Remove(newMapPos);
+                            }
+
                         }
                     }
                 }
