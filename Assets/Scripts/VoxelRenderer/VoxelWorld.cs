@@ -257,12 +257,11 @@ public class VoxelWorld : MonoBehaviour
             int chunksRemoved = 0;
             foreach (int3 id in chunks.GetKeyArray(Allocator.Temp))
             {
-                if (chunksRemoved > numChunksPerTick) return;
+                //if (chunksRemoved > numChunksPerTick) return;
                 if (math.distance(chunkPos, id) > renderChunks)
                 {
                     Unload(id);
                     chunks.Remove(id);
-                    Debug.Log("Unloaded Chunk " + id);
                 }
                 chunksRemoved++;
             }

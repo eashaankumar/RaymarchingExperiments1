@@ -555,7 +555,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   renderTicks: 1
-  downsamples: 2
+  downsamples: 1
   maxRenderDist: 500
   maxVoxStepCount: 250
   gaussianPyramidShader: {fileID: 7200000, guid: c3e7927853acc294c8bc440ad41a5853, type: 3}
@@ -793,7 +793,7 @@ MonoBehaviour:
     worldFront: 100
     worldBack: -100
   renderChunks: 10
-  numChunksPerTick: 10
+  numChunksPerTick: 20
   updateTicks: 0
   chunkSize: 16
   target: {fileID: 1399788334}
