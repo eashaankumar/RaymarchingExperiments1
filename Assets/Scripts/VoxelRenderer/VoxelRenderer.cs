@@ -202,6 +202,8 @@ public class VoxelRenderer : MonoBehaviour
             skyboxBlueDark = ColorToFloat4(skyboxBlueDark),
             skyboxBlueLight = ColorToFloat4(skyboxBlueLight),
             skyboxRed = ColorToFloat4(skyboxRed),
+            chunks = VoxelWorld.Instance.chunks,
+            chunkSize = VoxelWorld.Instance.ChunkSize,
         };
         renderHandle = job.Schedule(pixels.Length, 64);
     }
@@ -268,6 +270,11 @@ public class VoxelRenderer : MonoBehaviour
     }
 
     #region Jobs
+    struct DDAUpdate
+    {
+
+    }
+
     [BurstCompile]
     struct RenderJob : IJobParallelFor
     {
@@ -276,6 +283,8 @@ public class VoxelRenderer : MonoBehaviour
 
         [NativeDisableParallelForRestriction]
         public NativeParallelHashMap<int3, VoxelWorld.VoxelData> voxelData;
+        [NativeDisableParallelForRestriction]
+        public NativeParallelHashMap<int3, VoxelWorldChunk> chunks;
         [NativeDisableParallelForRestriction]
         public NativeList<int3> updateQueue;
 
@@ -286,6 +295,7 @@ public class VoxelRenderer : MonoBehaviour
         [ReadOnly] public float3 sunDir;
         [ReadOnly] public int maxVoxStepCount;
         [ReadOnly] public bool renderOdds;
+        [ReadOnly] public int chunkSize;
 
         const float epsilon = 0.0001f;
         [ReadOnly] public float3 planetCenter;
@@ -301,9 +311,9 @@ public class VoxelRenderer : MonoBehaviour
             /*if (!shouldRayMarch(new uint2(uv)))
             {
                 int leftI = math.clamp((index - 1), 0, pixels.Length - 1);
-                int rightI = math.clamp((index + 1), 0, pixels.Length - 1);
+                //int rightI = math.clamp((index + 1), 0, pixels.Length - 1);
 
-                pixels[index] = (pixels[leftI] + pixels[rightI]);
+                pixels[index] = pixels[leftI];
                 return;
             }*/
             float2 uvNorm = new float2(uv.x / (float)width, uv.y / (float)height);
@@ -376,7 +386,7 @@ public class VoxelRenderer : MonoBehaviour
 
         float4 getColor(RaymarchDDAResult res, Ray origin)
         {
-            float4 color = new float4(0, 0, 0, 0);
+            /*float4 color = new float4(0, 0, 0, 0);
             float4 albedo = new float4(0, 0, 0, 0);
             float4 skybox = new float4(0, 0, 0, 0);
             float4 shadowColor = new float4(0, 0, 0, 0);
@@ -395,9 +405,6 @@ public class VoxelRenderer : MonoBehaviour
                     case VoxelWorld.VoxelType.DIRT:
                         albedo = dirtColor;
                         break;
-                    /*case VoxelWorld.VoxelType.WATER:
-                        color = waterColor;
-                        break;*/
                 }
                 albedo = math.saturate(albedo + d.tint);
                 skybox = float4.zero;
@@ -420,14 +427,19 @@ public class VoxelRenderer : MonoBehaviour
             }
             float hitDis = res.pathLength;
 
-            if (IsInShadow(/*origin.origin + origin.direction * hitDis*/ res.mapPos)) // use res.mapPos for per-vox shadows
-            {
-                shadowColor = new float4(1, 1, 1, 1) * -0.25f;
-            }
+            //if (IsInShadow(res.mapPos)) // use res.mapPos for per-vox shadows
+            //{
+            //    shadowColor = new float4(1, 1, 1, 1) * -0.25f;
+            //}
 
-            float depth = math.exp(-1f / hitDis);
-            color = albedo * depth + skybox + shadowColor;
-            return color;
+            //float depth = math.exp(-1f / hitDis);
+            color = albedo + skybox + shadowColor;
+            return color;*/
+            if (res.miss)
+            {
+                return 0;
+            }
+            return 1;
         }
 
         bool IsInShadow(float3 origin)
@@ -479,42 +491,152 @@ public class VoxelRenderer : MonoBehaviour
             return voxelData.ContainsKey(mapPos) && voxelData[mapPos].t == VoxelWorld.VoxelType.WATER;
         }
 
+        bool IsVoxelInChunk(int3 vox, int3 chunk)
+        {
+            int3 chunkVox = chunk * chunkSize;
+            return (vox.x >= chunkVox.x && vox.x < chunkVox.x + chunkSize &&
+                    vox.y >= chunkVox.y && vox.y < chunkVox.y + chunkSize &&
+                    vox.z >= chunkVox.z && vox.z < chunkVox.z + chunkSize
+            );
+        }
+
         RaymarchDDAResult raymarchDDA(float3 o, float3 dir, int maxStepCount, bool ignoreSelf=false)
         {
             // https://www.shadertoy.com/view/4dX3zl
             float3 p = o;
             // which box of the map we're in
-            int3 mapPos = new int3(math.floor(p));
+            int3 chunkSpacePos = new int3(math.floor(p)) / chunkSize; // vox to chunk space
             // length of ray from one xyz-side to another xyz-sideDist
             float3 deltaDist = math.abs(new float3(1, 1, 1) * math.length(dir) / dir);
             int3 rayStep = new int3(math.sign(dir));
             // length of ray from current position to next xyz-side
-            float3 sideDist = (math.sign(dir) * (new float3(mapPos.x, mapPos.y, mapPos.z) - o) + (math.sign(dir) * 0.5f) + 0.5f) * deltaDist;
+            float3 sideDist = (math.sign(dir) * (new float3(chunkSpacePos.x, chunkSpacePos.y, chunkSpacePos.z) - o) + (math.sign(dir) * 0.5f) + 0.5f) * deltaDist;
             bool3 mask = new bool3();
-            bool miss = false;
+            bool hits = false;
             float pathLength = 0;
             float distThroughWater = 0;
+            float disThroughChunk = 0;
+            int3 voxelMapPos = int3.zero;
             for (int i = 0; i < maxStepCount; i++)
             {
-                if (i == 0 && ignoreSelf) { }
-                else if (DDAHit(mapPos)) break;
+                if (chunks.ContainsKey(chunkSpacePos))
+                {
+                    
+                    float3 chunkEntryPoint = o + dir * pathLength;
+                    voxelMapPos = new int3(math.floor(chunkEntryPoint));
+                    float3 voxSideDist = (math.sign(dir) * (new float3(voxelMapPos.x, voxelMapPos.y, voxelMapPos.z) - chunkEntryPoint) + (math.sign(dir) * 0.5f) + 0.5f) * deltaDist;
+                    #region step inside chunk
+                    if (voxSideDist.x < voxSideDist.y)
+                    {
+                        if (voxSideDist.x < voxSideDist.z)
+                        {
+                            voxSideDist.x += deltaDist.x;
+                            voxelMapPos.x += rayStep.x;
+                        }
+                        else
+                        {
+                            voxSideDist.z += deltaDist.z;
+                            voxelMapPos.z += rayStep.z;
+                        }
+                    }
+                    else
+                    {
+                        if (voxSideDist.y < voxSideDist.z)
+                        {
+                            voxSideDist.y += deltaDist.y;
+                            voxelMapPos.y += rayStep.y;
+                        }
+                        else
+                        {
+                            voxSideDist.z += deltaDist.z;
+                            voxelMapPos.z += rayStep.z;
+                        }
+                    }
+                    #endregion
+                    if (DDAHit(voxelMapPos))
+                    {
+                        hits = true;
+                    }
+                    /*
+                    #region voxel update
+                    int steps = 0;
+                    disThroughChunk = 0;
+                    while (IsVoxelInChunk(voxelMapPos, chunkSpacePos) && !hits)
+                    {
+                        if (i == 0 && ignoreSelf && steps == 0) { }
+                        else if (DDAHit(voxelMapPos)) { hits = true; break; }
+                        
+                        
+                        if (voxSideDist.x < voxSideDist.y)
+                        {
+                            if (voxSideDist.x < voxSideDist.z)
+                            {
+                                disThroughChunk = voxSideDist.x;
+                                voxSideDist.x += deltaDist.x;
+                                voxelMapPos.x += rayStep.x;
 
+                                mask = new bool3(true, false, false);
+                            }
+                            else
+                            {
+                                disThroughChunk = voxSideDist.z;
+                                voxSideDist.z += deltaDist.z;
+                                voxelMapPos.z += rayStep.z;
+                                mask = new bool3(false, false, true);
+                            }
+                        }
+                        else
+                        {
+                            if (voxSideDist.y < voxSideDist.z)
+                            {
+                                disThroughChunk = voxSideDist.y;
+                                voxSideDist.y += deltaDist.y;
+                                voxelMapPos.y += rayStep.y;
+                                mask = new bool3(false, true, false);
+                            }
+                            else
+                            {
+                                disThroughChunk = voxSideDist.z;
+                                voxSideDist.z += deltaDist.z;
+                                voxelMapPos.z += rayStep.z;
+                                mask = new bool3(false, false, true);
+                            }
+                        }
+                        if (IsWater(voxelMapPos))
+                        {
+                            if (mask.x) distThroughWater += deltaDist.x;
+                            if (mask.y) distThroughWater += deltaDist.y;
+                            if (mask.z) distThroughWater += deltaDist.z;
+
+                        }
+                        steps++;               
+                    }
+                    #endregion
+                    */
+                }
+                if (hits) break;
+                /*if (i == 0 && ignoreSelf) { }
+                else if (DDAHit(mapPos))
+                {
+                    break;
+                }*/
+                #region chunk update
                 if (sideDist.x < sideDist.y)
                 {
                     if (sideDist.x < sideDist.z)
                     {
                         pathLength = sideDist.x;
                         sideDist.x += deltaDist.x;
-                        mapPos.x += rayStep.x;
+                        chunkSpacePos.x += rayStep.x;
 
-                        mask = new bool3(true, false, false);
+                        //mask = new bool3(true, false, false);
                     }
                     else
                     {
                         pathLength = sideDist.z;
                         sideDist.z += deltaDist.z;
-                        mapPos.z += rayStep.z;
-                        mask = new bool3(false, false, true);
+                        chunkSpacePos.z += rayStep.z;
+                        //mask = new bool3(false, false, true);
                     }
                 }
                 else
@@ -523,35 +645,30 @@ public class VoxelRenderer : MonoBehaviour
                     {
                         pathLength = sideDist.y;
                         sideDist.y += deltaDist.y;
-                        mapPos.y += rayStep.y;
-                        mask = new bool3(false, true, false);
+                        chunkSpacePos.y += rayStep.y;
+                        //mask = new bool3(false, true, false);
                     }
                     else
                     {
                         pathLength = sideDist.z;
                         sideDist.z += deltaDist.z;
-                        mapPos.z += rayStep.z;
-                        mask = new bool3(false, false, true);
+                        chunkSpacePos.z += rayStep.z;
+                        //mask = new bool3(false, false, true);
                     }
                 }
-                if (IsWater(mapPos))
-                {
-                    if (mask.x) distThroughWater += deltaDist.x;
-                    if (mask.y) distThroughWater += deltaDist.y;
-                    if (mask.z) distThroughWater += deltaDist.z;
+                #endregion
 
-                }
                 if (i == maxStepCount - 1)
                 {
-                    miss = true;
+                    hits = false;
                 }
             }
 
             RaymarchDDAResult result = new RaymarchDDAResult()
             {
-                mapPos = mapPos,
-                miss = miss,
-                pathLength = pathLength,
+                mapPos = chunkSpacePos,
+                miss = !hits,
+                pathLength = pathLength + disThroughChunk,
                 distThroughWater = distThroughWater,
             };
             //result.normal = normalize(hits.tri.vertexA.normal + hits.tri.vertexB.normal + hits.tri.vertexC.normal);

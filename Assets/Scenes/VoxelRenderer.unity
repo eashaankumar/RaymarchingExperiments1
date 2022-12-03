@@ -555,7 +555,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   renderTicks: 1
-  downsamples: 1
+  downsamples: 3
   maxRenderDist: 500
   maxVoxStepCount: 250
   gaussianPyramidShader: {fileID: 7200000, guid: c3e7927853acc294c8bc440ad41a5853, type: 3}

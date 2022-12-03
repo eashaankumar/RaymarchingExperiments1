@@ -245,7 +245,7 @@ public class VoxelWorld : MonoBehaviour
 
         public int3 WorldToVoxWorldPosition(float3 pos)
         {
-            return new int3(pos);
+            return new int3(math.floor(pos));
         }
         public int3 WorldVoxToChunkID(int3 mapPos)
         {
