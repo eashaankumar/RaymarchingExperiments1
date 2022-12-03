@@ -6,13 +6,14 @@ public class VoxelWorldNoise : MonoBehaviour
 {
 
     [SerializeField]
-    float frequency;
+    public float frequency;
     [SerializeField]
-    float tintFrequency;
+    public float tintFrequency;
     [SerializeField]
-    int mountainHeight;
+    public int mountainHeight;
     [SerializeField]
-    float terrainNoiseImpact;
+    public float terrainNoiseImpact;
+    public float tintNoiseImpact;
 
     public static VoxelWorldNoise Instance;
 
@@ -57,7 +58,7 @@ public class VoxelWorldNoise : MonoBehaviour
     public float GetTintNoise(int3 worldVoxPos)
     {
         float3 noiseSample = worldVoxPos;
-        return VoxelWorldNoise.Instance.TintNoise.GetNoise(noiseSample.x, noiseSample.y, noiseSample.z) * 0.075f;
+        return VoxelWorldNoise.Instance.TintNoise.GetNoise(noiseSample.x, noiseSample.y, noiseSample.z) * tintNoiseImpact;
     }
 
     // Start is called before the first frame update

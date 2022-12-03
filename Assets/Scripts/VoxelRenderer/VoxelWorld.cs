@@ -92,6 +92,8 @@ public class VoxelWorld : MonoBehaviour
     public NativeParallelHashMap<int3, VoxelWorldChunk> chunks;
     public NativeQueue<int3> worldUpdateActions;
 
+    int numActiveChunks;
+
     private void Awake()
     {
         Instance = this;
@@ -112,6 +114,12 @@ public class VoxelWorld : MonoBehaviour
         chunks.Dispose();
         worldUpdateActions.Dispose();
         //voxelsToUpdate.Dispose();
+    }
+
+    private void OnGUI()
+    {
+        GUI.color = Color.white;
+        GUI.Label(new Rect(10, 10, 500, 20), "Active Chunks: " + numActiveChunks);
     }
 
     JobHandle updateJobHandle;
@@ -148,11 +156,21 @@ public class VoxelWorld : MonoBehaviour
                 renderChunks = renderChunks,
                 chunkSize = chunkSize,
                 numChunksPerTick = numChunksPerTick,
+                random = new Unity.Mathematics.Random((uint)UnityEngine.Random.Range(1, 100000)),
+                terrainNoiseParams = new NoiseParams { scale=VoxelWorldNoise.Instance.terrainNoiseImpact, 
+                    frequency=VoxelWorldNoise.Instance.frequency },
+                tintNoiseParams = new NoiseParams
+                {
+                    scale = VoxelWorldNoise.Instance.tintNoiseImpact,
+                    frequency = VoxelWorldNoise.Instance.tintFrequency
+                },
+                mountainHeight = VoxelWorldNoise.Instance.mountainHeight,
             };
             updating = true;
             updateJobHandle = job.Schedule();
             yield return new WaitUntil(() => updateJobHandle.IsCompleted);
             updateJobHandle.Complete();
+            numActiveChunks = chunks.Count();
             updating = false;
         }
         VoxelRenderer.Instance.voxelQueue.Enqueue(VoxelRenderer.Instance.StartRender);
@@ -180,6 +198,12 @@ public class VoxelWorld : MonoBehaviour
     #endregion
 
     #region Update Jobs
+    struct NoiseParams
+    {
+        public float scale;
+        public float frequency;
+        public int octaves;
+    }
     [BurstCompile]
     struct UpdateJob : IJob
     {
@@ -189,6 +213,11 @@ public class VoxelWorld : MonoBehaviour
         public NativeQueue<int3> worldUpdateActions;
         [NativeDisableParallelForRestriction]
         public NativeParallelHashMap<int3, VoxelWorldChunk> chunks;
+
+        public Unity.Mathematics.Random random;
+        [ReadOnly] public int mountainHeight;
+        [ReadOnly] public NoiseParams terrainNoiseParams;
+        [ReadOnly] public NoiseParams tintNoiseParams;
 
         [ReadOnly] public VoxelWorldDimensions dims;
 
@@ -204,8 +233,11 @@ public class VoxelWorld : MonoBehaviour
 
         public void Execute()
         {
-            LoadChunks();
-            for(int i = 0; i < updateRequestsProcessCount && i < worldUpdateActions.Count; i++)
+            int3 mapPos = WorldToVoxWorldPosition(targetPos);
+            int3 chunkPos = WorldVoxToChunkID(mapPos);
+            LoadChunks(chunkPos);
+            UnloadChunks(chunkPos);
+            for (int i = 0; i < updateRequestsProcessCount && i < worldUpdateActions.Count; i++)
             {
                 UpdateVoxelAction(worldUpdateActions.Dequeue());
             }
@@ -220,10 +252,24 @@ public class VoxelWorld : MonoBehaviour
             return mapPos / chunkSize;
         }
 
-        void LoadChunks()
+        void UnloadChunks(int3 chunkPos)
         {
-            int3 mapPos = WorldToVoxWorldPosition(targetPos);
-            int3 chunkPos = WorldVoxToChunkID(mapPos);
+            int chunksRemoved = 0;
+            foreach (int3 id in chunks.GetKeyArray(Allocator.Temp))
+            {
+                if (chunksRemoved > numChunksPerTick) return;
+                if (math.distance(chunkPos, id) > renderChunks)
+                {
+                    Unload(id);
+                    chunks.Remove(id);
+                    Debug.Log("Unloaded Chunk " + id);
+                }
+                chunksRemoved++;
+            }
+        }
+
+        void LoadChunks(int3 chunkPos)
+        {
             int chunksCreated = 0;
             for (int x = -renderChunks / 2; x <= renderChunks / 2; x++)
             {
@@ -233,6 +279,7 @@ public class VoxelWorld : MonoBehaviour
                     {
                         if (chunksCreated > numChunksPerTick) return;
                         int3 offset = new int3(x, y, z);
+                        if (math.length(offset) > renderChunks) return;
                         int3 lookingAt = chunkPos + offset;
                         if (!chunks.ContainsKey(lookingAt))
                         {
@@ -250,6 +297,7 @@ public class VoxelWorld : MonoBehaviour
                 }
             }
         }
+
         public void Load(int3 id)
         {
             int3 chunkOriginInVoxSpace = id * chunkSize;
@@ -261,15 +309,33 @@ public class VoxelWorld : MonoBehaviour
                     {
                         int3 localVoxPos = new int3(x, y, z);
                         int3 worldVoxPos = chunkOriginInVoxSpace + localVoxPos;
-                        float noise = VoxelWorldNoise.Instance.GetTerrainNoise(worldVoxPos);
+                        //float noise = VoxelWorldNoise.Instance.GetTerrainNoise(worldVoxPos);
+                        float noise = GetTerrainNoise(worldVoxPos);
                         if (noise < 0)
                         {
                             VoxelWorld.VoxelType vt = VoxelWorld.VoxelType.DIRT;
-                            float tint = VoxelWorldNoise.Instance.GetTintNoise(worldVoxPos);
+                            float tint = GetTintNoise(worldVoxPos);
                             //float tint = math.sin(x + y + z) * 0.1f;
                             //VoxelWorld.Instance.AddVoxel(worldVoxPos, new VoxelWorld.VoxelData() { t = vt, tint = tint });
                             voxelData.TryAdd(worldVoxPos, new VoxelWorld.VoxelData() { t = vt, tint = tint });
                         }
+                    }
+                }
+            }
+        }
+
+        public void Unload(int3 id)
+        {
+            int3 chunkOriginInVoxSpace = id * chunkSize;
+            for (int x = 0; x < chunkSize; x++)
+            {
+                for (int y = 0; y < chunkSize; y++)
+                {
+                    for (int z = 0; z < chunkSize; z++)
+                    {
+                        int3 localVoxPos = new int3(x, y, z);
+                        int3 worldVoxPos = chunkOriginInVoxSpace + localVoxPos;
+                        voxelData.Remove(worldVoxPos);
                     }
                 }
             }
@@ -446,7 +512,7 @@ public class VoxelWorld : MonoBehaviour
             if (!voxelData.ContainsKey(pos)) return;
             VoxelData data = voxelData[pos];
             
-            if (data.staleTicks < 10)
+            if (data.staleTicks < 100 || random.NextFloat(0f, 1f) < 0.5f)
             {
                 bool wasUpdated = false;
                 switch (data.t)
@@ -486,6 +552,31 @@ public class VoxelWorld : MonoBehaviour
             }
         }
 
+        #region Noise
+        float invLerp(float from, float to, float value)
+        {
+            return (value - from) / (to - from);
+        }
+        float SurfaceNoise(int3 ns)
+        {
+            float3 noiseSample = ns;
+            float n = math.lerp(-1f, 1f, invLerp(dims.worldBottom, mountainHeight, noiseSample.y));
+            return n + Unity.Mathematics.noise.snoise(noiseSample * terrainNoiseParams.frequency) * terrainNoiseParams.scale;
+        }
+
+        public float GetTerrainNoise(int3 worldVoxPos)
+        {
+            if (worldVoxPos.y > mountainHeight) return 1;
+            int3 noiseSample = worldVoxPos;
+            return SurfaceNoise(noiseSample);
+        }
+
+        public float GetTintNoise(int3 worldVoxPos)
+        {
+            float3 noiseSample = worldVoxPos;
+            return Unity.Mathematics.noise.snoise(noiseSample * tintNoiseParams.frequency) * tintNoiseParams.scale;
+        }
+        #endregion
     }
     #endregion
 }

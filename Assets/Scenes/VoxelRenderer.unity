@@ -315,7 +315,7 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 45.05
+  m_fontSize: 45.6
   m_fontSizeBase: 36
   m_fontWeight: 400
   m_enableAutoSizing: 1
@@ -555,7 +555,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   renderTicks: 1
-  downsamples: 1
+  downsamples: 2
   maxRenderDist: 500
   maxVoxStepCount: 250
   gaussianPyramidShader: {fileID: 7200000, guid: c3e7927853acc294c8bc440ad41a5853, type: 3}
@@ -793,7 +793,7 @@ MonoBehaviour:
     worldFront: 100
     worldBack: -100
   renderChunks: 10
-  numChunksPerTick: 1
+  numChunksPerTick: 10
   updateTicks: 0
   chunkSize: 16
   target: {fileID: 1399788334}
@@ -827,7 +827,8 @@ MonoBehaviour:
   frequency: 0.01
   tintFrequency: 1
   mountainHeight: 10
-  terrainNoiseImpact: 0.2
+  terrainNoiseImpact: 0.4
+  tintNoiseImpact: 0.075
 --- !u!114 &1757045253
 MonoBehaviour:
   m_ObjectHideFlags: 0
