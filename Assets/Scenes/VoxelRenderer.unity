@@ -315,7 +315,7 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 45.6
+  m_fontSize: 45.2
   m_fontSizeBase: 36
   m_fontWeight: 400
   m_enableAutoSizing: 1
@@ -554,13 +554,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b1acddd42463a6543ba10ffe67bb4332, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  renderTicks: 1
-  downsamples: 3
-  maxRenderDist: 500
-  maxVoxStepCount: 250
+  renderTicks: 0
+  resolution: 0.482
+  maxRenderDist: 0
+  maxChunkStepCount: 250
+  maxVoxStepCount: 100
   gaussianPyramidShader: {fileID: 7200000, guid: c3e7927853acc294c8bc440ad41a5853, type: 3}
   blurSize: 20
-  std: 1
+  sharpenSize: 5
+  std: 4
   sandColor: {r: 1, g: 0.5469046, b: 0, a: 1}
   dirtColor: {r: 0.5471698, g: 0.16577443, b: 0, a: 1}
   waterColor: {r: 0, g: 0.75454235, b: 1, a: 1}
@@ -576,7 +578,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1399788331}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: aea0fa70d529e0e41bd961746d359f72, type: 3}
   m_Name: 
@@ -584,7 +586,7 @@ MonoBehaviour:
   moveSpeed: 25
   jumpSpeed: 10
   gravityAcc: 9.81
-  playerHeight: 8
+  playerHeight: 4
 --- !u!1 &1714620418
 GameObject:
   m_ObjectHideFlags: 0
@@ -793,7 +795,7 @@ MonoBehaviour:
     worldFront: 100
     worldBack: -100
   renderChunks: 10
-  numChunksPerTick: 20
+  numChunksPerTick: 10
   updateTicks: 0
   chunkSize: 16
   target: {fileID: 1399788334}

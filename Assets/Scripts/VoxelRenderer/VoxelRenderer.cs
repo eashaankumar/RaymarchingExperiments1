@@ -13,16 +13,22 @@ public class VoxelRenderer : MonoBehaviour
     [Header("Rendering Engine")]
     [SerializeField, Tooltip("# of ticks between each render call (for updating destination render texture); also the number of frames system gets to update voxel world")]
     int renderTicks;
-    [SerializeField, Tooltip("# of resolution divisions by 2")]
-    int downsamples;
+    //[SerializeField, Tooltip("# of resolution divisions by 2")]
+    //int downsamples;
+    [SerializeField, Range(0f, 1f)]
+    float resolution;
     [SerializeField]
     float maxRenderDist;
+    [SerializeField]
+    int maxChunkStepCount;
     [SerializeField]
     int maxVoxStepCount;
     [SerializeField]
     ComputeShader gaussianPyramidShader;
     [SerializeField]
     int blurSize;
+    [SerializeField]
+    int sharpenSize;
     [SerializeField]
     float std;
 
@@ -38,7 +44,7 @@ public class VoxelRenderer : MonoBehaviour
     [SerializeField]
     Light sun;
 
-    int blurKernel, upsampleKernel;
+    //int blurKernel, upsampleKernel, sharpenKernel;
     int ticks;
 
     Texture2D tex;
@@ -81,8 +87,9 @@ public class VoxelRenderer : MonoBehaviour
 
         cam = Camera.main;
 
-        blurKernel = gaussianPyramidShader.FindKernel("Blur");
+        /*blurKernel = gaussianPyramidShader.FindKernel("Blur");
         upsampleKernel = gaussianPyramidShader.FindKernel("Upsample");
+        sharpenKernel = gaussianPyramidShader.FindKernel("Sharpen");*/
 
         voxelQueue.Enqueue(StartRender);
     }
@@ -122,8 +129,10 @@ public class VoxelRenderer : MonoBehaviour
 
     void Init()
     {
-        width = (int)(cam.pixelWidth / Mathf.Pow(2,downsamples));
-        height = (int)(cam.pixelHeight / Mathf.Pow(2, downsamples));
+        /*width = (int)(cam.pixelWidth / Mathf.Pow(2,downsamples));
+        height = (int)(cam.pixelHeight / Mathf.Pow(2, downsamples));*/
+        width = (int)(cam.pixelWidth * resolution);
+        height = (int)(cam.pixelHeight * resolution);
 
         if (tex == null)
         {
@@ -132,11 +141,13 @@ public class VoxelRenderer : MonoBehaviour
         }
 
         if (pyramid == null) 
-        { 
-            pyramid = new RenderTexture[downsamples + 1]; 
+        {
+            pyramid = new RenderTexture[1];
+            //pyramid = new RenderTexture[downsamples + 1]; 
             for(int i = 0; i < pyramid.Length; i++)
             {
-                CreateTexture((int)(width * Mathf.Pow(2, i)), (int)(height * Mathf.Pow(2, i)), ref pyramid[i]);
+                //CreateTexture((int)(width * Mathf.Pow(2, i)), (int)(height * Mathf.Pow(2, i)), ref pyramid[i]);
+                CreateTexture(width, height, ref pyramid[i]);
             }
         }
 
@@ -187,6 +198,7 @@ public class VoxelRenderer : MonoBehaviour
             _CameraToWorld = cam.cameraToWorldMatrix,
             _CameraInverseProjection = cam.projectionMatrix.inverse,
             sunDir = sun.transform.forward,
+            maxChunkStepCount = maxChunkStepCount,
             maxVoxStepCount = maxVoxStepCount,
             planetCenter = new float3(0, 0, 0),
             planetRadius = 1,
@@ -206,6 +218,7 @@ public class VoxelRenderer : MonoBehaviour
             chunkSize = VoxelWorld.Instance.ChunkSize,
         };
         renderHandle = job.Schedule(pixels.Length, 64);
+        renderHandle.Complete();
     }
 
     float4 ColorToFloat4(Color c)
@@ -237,7 +250,7 @@ public class VoxelRenderer : MonoBehaviour
         // copy
         Graphics.Blit(tex, pyramid[0]);
         // upsample
-        for (int i = 1; i < pyramid.Length; i++)
+        /*for (int i = 1; i < pyramid.Length; i++)
         {
             Debug.Assert(pyramid[i - 1].width == pyramid[i].width / 2);
             gaussianPyramidShader.SetTexture(upsampleKernel, "_Source", pyramid[i - 1]);
@@ -246,6 +259,7 @@ public class VoxelRenderer : MonoBehaviour
             int numThreadGroupsX = Mathf.CeilToInt(pyramid[i - 1].width / numThreadsPerGroup);
             int numThreadGroupsY = Mathf.CeilToInt(pyramid[i - 1].height / numThreadsPerGroup);
             gaussianPyramidShader.Dispatch(upsampleKernel, numThreadGroupsX, numThreadGroupsY, 1);
+            
             // blur
             //gaussianPyramidShader.SetTexture(blurKernel, "_Source", temp);
             gaussianPyramidShader.SetTexture(blurKernel, "_Result", pyramid[i]);
@@ -254,7 +268,13 @@ public class VoxelRenderer : MonoBehaviour
             numThreadGroupsX = Mathf.CeilToInt(pyramid[i].width / numThreadsPerGroup);
             numThreadGroupsY = Mathf.CeilToInt(pyramid[i].height / numThreadsPerGroup);
             gaussianPyramidShader.Dispatch(blurKernel, numThreadGroupsX, numThreadGroupsY, 1);
-        }
+
+            gaussianPyramidShader.SetTexture(sharpenKernel, "_Result", pyramid[i]);
+            gaussianPyramidShader.SetInt("_kernelSize", sharpenSize);
+            numThreadGroupsX = Mathf.CeilToInt(pyramid[i].width / numThreadsPerGroup);
+            numThreadGroupsY = Mathf.CeilToInt(pyramid[i].height / numThreadsPerGroup);
+            gaussianPyramidShader.Dispatch(sharpenKernel, numThreadGroupsX, numThreadGroupsY, 1);
+        }*/
     }
 
     void CreateTexture(int width, int height, ref RenderTexture rt)
@@ -294,6 +314,7 @@ public class VoxelRenderer : MonoBehaviour
         [ReadOnly] public float4x4 _CameraInverseProjection;
         [ReadOnly] public float3 sunDir;
         [ReadOnly] public int maxVoxStepCount;
+        [ReadOnly] public int maxChunkStepCount;
         [ReadOnly] public bool renderOdds;
         [ReadOnly] public int chunkSize;
 
@@ -320,7 +341,7 @@ public class VoxelRenderer : MonoBehaviour
 
             Ray ray = CreateCameraRay(uvNorm * 2 - 1);
 
-            RaymarchDDAResult rs = raymarchDDA(ray.origin, ray.direction, maxVoxStepCount);
+            RaymarchDDAResult rs = raymarchDDA(ray.origin, ray.direction, maxChunkStepCount);
 
             float4 color = getColor(rs, ray);
             pixels[index] = color;
@@ -386,7 +407,7 @@ public class VoxelRenderer : MonoBehaviour
 
         float4 getColor(RaymarchDDAResult res, Ray origin)
         {
-            /*float4 color = new float4(0, 0, 0, 0);
+            float4 color = new float4(0, 0, 0, 0);
             float4 albedo = new float4(0, 0, 0, 0);
             float4 skybox = new float4(0, 0, 0, 0);
             float4 shadowColor = new float4(0, 0, 0, 0);
@@ -427,19 +448,14 @@ public class VoxelRenderer : MonoBehaviour
             }
             float hitDis = res.pathLength;
 
-            //if (IsInShadow(res.mapPos)) // use res.mapPos for per-vox shadows
-            //{
-            //    shadowColor = new float4(1, 1, 1, 1) * -0.25f;
-            //}
+            if (IsInShadow(res.mapPos)) // use res.mapPos for per-vox shadows
+            {
+                shadowColor = new float4(1, 1, 1, 1) * -0.25f;
+            }
 
             //float depth = math.exp(-1f / hitDis);
             color = albedo + skybox + shadowColor;
-            return color;*/
-            if (res.miss)
-            {
-                return 0;
-            }
-            return 1;
+            return color;
         }
 
         bool IsInShadow(float3 origin)
@@ -447,7 +463,7 @@ public class VoxelRenderer : MonoBehaviour
             Ray shadowRay = CreateRay(origin, -sunDir);
             //float3 deltaDist = math.abs(new float3(1, 1, 1) * math.length(shadowRay.direction) / shadowRay.direction);
             shadowRay.origin += shadowRay.direction * epsilon * 2;
-            RaymarchDDAResult res = raymarchDDA(shadowRay.origin, shadowRay.direction, maxVoxStepCount/2, true);
+            RaymarchDDAResult res = raymarchDDA(shadowRay.origin, shadowRay.direction, maxChunkStepCount / 4, true);
             return !res.miss;
         }
 
@@ -493,11 +509,14 @@ public class VoxelRenderer : MonoBehaviour
 
         bool IsVoxelInChunk(int3 vox, int3 chunk)
         {
-            int3 chunkVox = chunk * chunkSize;
+            /*int3 chunkVox = chunk * chunkSize;
             return (vox.x >= chunkVox.x && vox.x < chunkVox.x + chunkSize &&
                     vox.y >= chunkVox.y && vox.y < chunkVox.y + chunkSize &&
                     vox.z >= chunkVox.z && vox.z < chunkVox.z + chunkSize
-            );
+            );*/
+            int3 chunkID = vox / chunkSize;
+            bool3 eq = chunkID == chunk;
+            return eq.x && eq.y && eq.z;
         }
 
         RaymarchDDAResult raymarchDDA(float3 o, float3 dir, int maxStepCount, bool ignoreSelf=false)
@@ -505,7 +524,7 @@ public class VoxelRenderer : MonoBehaviour
             // https://www.shadertoy.com/view/4dX3zl
             float3 p = o;
             // which box of the map we're in
-            int3 chunkSpacePos = new int3(math.floor(p)) / chunkSize; // vox to chunk space
+            int3 chunkSpacePos = new int3(math.floor(p)) /*/ chunkSize*/; // vox to chunk space
             // length of ray from one xyz-side to another xyz-sideDist
             float3 deltaDist = math.abs(new float3(1, 1, 1) * math.length(dir) / dir);
             int3 rayStep = new int3(math.sign(dir));
@@ -519,52 +538,20 @@ public class VoxelRenderer : MonoBehaviour
             int3 voxelMapPos = int3.zero;
             for (int i = 0; i < maxStepCount; i++)
             {
-                if (chunks.ContainsKey(chunkSpacePos))
+                
+                #region hit
+                if (DDAHit(chunkSpacePos))
                 {
-                    
-                    float3 chunkEntryPoint = o + dir * pathLength;
+                    hits = true;
+                    /*float3 chunkEntryPoint = o + dir * pathLength;
                     voxelMapPos = new int3(math.floor(chunkEntryPoint));
                     float3 voxSideDist = (math.sign(dir) * (new float3(voxelMapPos.x, voxelMapPos.y, voxelMapPos.z) - chunkEntryPoint) + (math.sign(dir) * 0.5f) + 0.5f) * deltaDist;
-                    #region step inside chunk
-                    if (voxSideDist.x < voxSideDist.y)
-                    {
-                        if (voxSideDist.x < voxSideDist.z)
-                        {
-                            voxSideDist.x += deltaDist.x;
-                            voxelMapPos.x += rayStep.x;
-                        }
-                        else
-                        {
-                            voxSideDist.z += deltaDist.z;
-                            voxelMapPos.z += rayStep.z;
-                        }
-                    }
-                    else
-                    {
-                        if (voxSideDist.y < voxSideDist.z)
-                        {
-                            voxSideDist.y += deltaDist.y;
-                            voxelMapPos.y += rayStep.y;
-                        }
-                        else
-                        {
-                            voxSideDist.z += deltaDist.z;
-                            voxelMapPos.z += rayStep.z;
-                        }
-                    }
-                    #endregion
-                    if (DDAHit(voxelMapPos))
-                    {
-                        hits = true;
-                    }
-                    /*
                     #region voxel update
-                    int steps = 0;
                     disThroughChunk = 0;
-                    while (IsVoxelInChunk(voxelMapPos, chunkSpacePos) && !hits)
+                    for (int steps = 0; steps < maxVoxStepCount; steps++)
                     {
-                        if (i == 0 && ignoreSelf && steps == 0) { }
-                        else if (DDAHit(voxelMapPos)) { hits = true; break; }
+                        //if ((i == 0 && ignoreSelf)) { }
+                        if (steps > 0 && DDAHit(voxelMapPos)) { hits = true; break; } // only check once we have stepped inside the chunk
                         
                         
                         if (voxSideDist.x < voxSideDist.y)
@@ -609,17 +596,19 @@ public class VoxelRenderer : MonoBehaviour
                             if (mask.z) distThroughWater += deltaDist.z;
 
                         }
-                        steps++;               
                     }
-                    #endregion
+                    #endregion  
                     */
                 }
                 if (hits) break;
+                #endregion
+                
                 /*if (i == 0 && ignoreSelf) { }
                 else if (DDAHit(mapPos))
                 {
                     break;
                 }*/
+
                 #region chunk update
                 if (sideDist.x < sideDist.y)
                 {
@@ -629,14 +618,14 @@ public class VoxelRenderer : MonoBehaviour
                         sideDist.x += deltaDist.x;
                         chunkSpacePos.x += rayStep.x;
 
-                        //mask = new bool3(true, false, false);
+                        mask = new bool3(true, false, false);
                     }
                     else
                     {
                         pathLength = sideDist.z;
                         sideDist.z += deltaDist.z;
                         chunkSpacePos.z += rayStep.z;
-                        //mask = new bool3(false, false, true);
+                        mask = new bool3(false, false, true);
                     }
                 }
                 else
@@ -646,15 +635,21 @@ public class VoxelRenderer : MonoBehaviour
                         pathLength = sideDist.y;
                         sideDist.y += deltaDist.y;
                         chunkSpacePos.y += rayStep.y;
-                        //mask = new bool3(false, true, false);
+                        mask = new bool3(false, true, false);
                     }
                     else
                     {
                         pathLength = sideDist.z;
                         sideDist.z += deltaDist.z;
                         chunkSpacePos.z += rayStep.z;
-                        //mask = new bool3(false, false, true);
+                        mask = new bool3(false, false, true);
                     }
+                }
+                if (IsWater(chunkSpacePos))
+                {
+                    if (mask.x) distThroughWater += deltaDist.x;
+                    if (mask.y) distThroughWater += deltaDist.y;
+                    if (mask.z) distThroughWater += deltaDist.z;
                 }
                 #endregion
 

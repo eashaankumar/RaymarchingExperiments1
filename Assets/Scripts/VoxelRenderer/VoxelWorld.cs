@@ -288,8 +288,15 @@ public class VoxelWorld : MonoBehaviour
                             };
                             if (chunks.TryAdd(lookingAt, voxelWorldChunk))
                             {
-                                Load(lookingAt);
-                                chunksCreated++;
+                                int voxCount = Load(lookingAt);
+                                if (voxCount > 0)
+                                {
+                                    chunksCreated++;
+                                }
+                                else
+                                {
+                                    chunks.Remove(lookingAt);
+                                }
                             }
                         }
                     }
@@ -297,9 +304,10 @@ public class VoxelWorld : MonoBehaviour
             }
         }
 
-        public void Load(int3 id)
+        public int Load(int3 id)
         {
             int3 chunkOriginInVoxSpace = id * chunkSize;
+            int voxCount = 0;
             for (int x = 0; x < chunkSize; x++)
             {
                 for (int y = 0; y < chunkSize; y++)
@@ -317,10 +325,12 @@ public class VoxelWorld : MonoBehaviour
                             //float tint = math.sin(x + y + z) * 0.1f;
                             //VoxelWorld.Instance.AddVoxel(worldVoxPos, new VoxelWorld.VoxelData() { t = vt, tint = tint });
                             voxelData.TryAdd(worldVoxPos, new VoxelWorld.VoxelData() { t = vt, tint = tint });
+                            voxCount++;
                         }
                     }
                 }
             }
+            return voxCount;
         }
 
         public void Unload(int3 id)

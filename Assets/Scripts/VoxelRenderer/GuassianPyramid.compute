@@ -1,6 +1,7 @@
 // Each #kernel tells which function to compile; you can have many kernels
 #pragma kernel Blur
 #pragma kernel Upsample
+#pragma kernel Sharpen
 
 // Create a RenderTexture with enableRandomWrite flag and set it
 // with cs.SetTexture
@@ -42,16 +43,29 @@ void Upsample(uint3 id : SV_DispatchThreadID)
 {
     // id = uvs in smaller image
     _Result[id.xy * 2] = _Source[id.xy];
-    _Result[id.xy * 2 + RIGHT] = (_Source[id.xy] + _Source[id.xy + RIGHT])/2;
+    _Result[id.xy * 2 + RIGHT] = (_Source[id.xy] + _Source[id.xy + RIGHT]) / 2;
     _Result[id.xy * 2 + UP] = (_Source[id.xy] + _Source[id.xy + UP]) / 2;
-
-    //_Result[id.xy * 2 - RIGHT] = (_Source[id.xy] + _Source[id.xy - RIGHT]) / 2;
-    //_Result[id.xy * 2 - UP] = (_Source[id.xy] + _Source[id.xy - UP]) / 2;
-
-
     _Result[id.xy * 2 + RIGHT + UP] = (_Source[id.xy] + _Source[id.xy + RIGHT + UP]) / 2;
-    //_Result[id.xy * 2 + RIGHT - UP] = (_Source[id.xy] + _Source[id.xy + RIGHT - UP]) / 2;
-    //_Result[id.xy * 2 - RIGHT + UP] = (_Source[id.xy] + _Source[id.xy - RIGHT + UP]) / 2;
-    //_Result[id.xy * 2 - RIGHT - UP] = (_Source[id.xy] + _Source[id.xy - RIGHT - UP]) / 2;
+}
 
+[numthreads(8, 8, 1)]
+void Sharpen(uint3 id : SV_DispatchThreadID)
+{
+    // TODO: insert actual code here!
+    float4 sum = float4(0, 0, 0, 0);
+    for (int x = -_kernelSize / 2; x <= _kernelSize / 2; x++)
+    {
+        for (int y = -_kernelSize / 2; y <= _kernelSize / 2; y++)
+        {
+            int2 offset = int2(x, y);
+            int2 uv = id.xy + offset;
+            float weight = -1;
+            if (x == 0 && y == 0)
+            {
+                weight = _kernelSize * _kernelSize;
+            }
+            sum += _Result[uv] * weight;
+        }
+    }
+    _Result[id.xy] = sum;
 }
