@@ -19,7 +19,8 @@ public class InstancedVoxelRenderer : MonoBehaviour
     private ComputeBuffer argsBuffer;
     private Bounds bounds;
     CoroutineQueue simQ;
-    private NativeList<Voxel> voxels;
+    private NativeList<int3> voxels;
+    private NativeParallelHashMap<int3, Voxel> voxelData;
     int particleCount;
     #endregion
 
@@ -60,7 +61,8 @@ public class InstancedVoxelRenderer : MonoBehaviour
     #region Mono Behaviors
     private void Awake()
     {
-        voxels = new NativeList<Voxel>(Allocator.Persistent);
+        voxels = new NativeList<int3>(Allocator.Persistent);
+        voxelData = new NativeParallelHashMap<int3, Voxel>(100000, Allocator.Persistent);
         simQ = new CoroutineQueue(this);
         simQ.StartLoop();
     }
@@ -73,6 +75,7 @@ public class InstancedVoxelRenderer : MonoBehaviour
     private void OnDestroy()
     {
         if (voxels.IsCreated) voxels.Dispose();
+        if (voxelData.IsCreated) voxelData.Dispose();
         simQ.StopLoop();
     }
 
@@ -119,17 +122,36 @@ public class InstancedVoxelRenderer : MonoBehaviour
     IEnumerator Sim()
     {
         // User Input
-        /*if (Input.GetMouseButton(0))
+        if (Input.GetMouseButton(0))
         {
-            for (int i = 0; i < 100; i++)
+            for (int i = 0; i < 5; i++)
             {
-                voxels.Add(new Voxel { mass = 1, pos = new float3(UnityEngine.Random.Range(-range, range), UnityEngine.Random.Range(-range, range), UnityEngine.Random.Range(-range, range)), vel = new float3(UnityEngine.Random.value, UnityEngine.Random.value, UnityEngine.Random.value) * 10 });
+                int3 key = new int3(UnityEngine.Random.Range(-10, 10), UnityEngine.Random.Range(-10, 10), UnityEngine.Random.Range(-10, 10));
+                if (voxelData.ContainsKey(key))
+                    continue;
+                voxelData.Add(key, new Voxel ());
             }
-        }*/
+        }
 
         // Boundary surrounding the meshes we will be drawing.  Used for occlusion.
         bounds = new Bounds(transform.position, (Vector3.one) * (range + 1));
         yield return null;
+        voxels.Clear();
+        int width = Mathf.CeilToInt(Camera.main.pixelWidth / 3f);
+        int height = Mathf.CeilToInt(Camera.main.pixelHeight / 3f);
+        RenderJob renderJob = new RenderJob
+        {
+            voxels = voxels,
+            voxelData = voxelData,
+            width = width, 
+            height = height,
+            _CameraToWorld = Camera.main.cameraToWorldMatrix,
+            _CameraInverseProjection = Camera.main.projectionMatrix.inverse,
+            maxVoxStepCount = 250,
+        };
+        JobHandle handle = renderJob.Schedule(width * height, 64);
+        yield return new WaitUntil(() => handle.IsCompleted);
+        handle.Complete();
 
         NativeArray<MeshProperties> meshPropertiesArray = new NativeArray<MeshProperties>(voxels.Length, Allocator.TempJob);
         VoxelRendererJob updateJob = new VoxelRendererJob()
@@ -137,7 +159,7 @@ public class InstancedVoxelRenderer : MonoBehaviour
             meshPropertiesArray = meshPropertiesArray,
             voxels = voxels,
         };
-        JobHandle handle = updateJob.Schedule(voxels.Length, 64);
+        handle = updateJob.Schedule(voxels.Length, 64);
         yield return new WaitUntil(() => handle.IsCompleted);
         handle.Complete();
 
@@ -185,7 +207,7 @@ public class InstancedVoxelRenderer : MonoBehaviour
     struct VoxelRendererJob : IJobParallelFor
     {
         [NativeDisableParallelForRestriction]
-        public NativeList<Voxel> voxels;
+        public NativeList<int3> voxels;
         [NativeDisableParallelForRestriction]
         public NativeArray<MeshProperties> meshPropertiesArray;
 
@@ -201,14 +223,14 @@ public class InstancedVoxelRenderer : MonoBehaviour
                 return;
             }
 
-            Voxel v = voxels[index];
+            int3 mapPos = voxels[index];
 
             // Properties
             MeshProperties props = new MeshProperties();
             quaternion rotation = quaternion.identity;
             float3 scale = float3.zero + 1;
 
-            props.mat = float4x4.TRS(v.pos, rotation, scale);
+            props.mat = float4x4.TRS(mapPos, rotation, scale);
 
             props.color = new float4(1, 0, 0, 1f);
 
@@ -218,180 +240,29 @@ public class InstancedVoxelRenderer : MonoBehaviour
     }
 
     [BurstCompile]
-    struct RenderJob : IJobParallelFor
+    struct RenderJob : IJobParallelFor // out -> list of voxels
     {
         [NativeDisableParallelForRestriction]
-        public NativeArray<float4> pixels;
+        public NativeList<int3> voxels;
 
         [NativeDisableParallelForRestriction]
-        public NativeParallelHashMap<int3, VoxelWorld.VoxelData> voxelData;
-        [NativeDisableParallelForRestriction]
-        public NativeParallelHashMap<int3, VoxelWorldChunk> chunks;
-        [NativeDisableParallelForRestriction]
-        public NativeList<int3> updateQueue;
+        public NativeParallelHashMap<int3, Voxel> voxelData;
 
         [ReadOnly] public int width;
         [ReadOnly] public int height;
         [ReadOnly] public float4x4 _CameraToWorld;
         [ReadOnly] public float4x4 _CameraInverseProjection;
-        [ReadOnly] public float3 sunDir;
         [ReadOnly] public int maxVoxStepCount;
-        [ReadOnly] public int maxChunkStepCount;
-        [ReadOnly] public bool renderOdds;
-        [ReadOnly] public int chunkSize;
-
-        const float epsilon = 0.0001f;
-        [ReadOnly] public float3 planetCenter;
-        [ReadOnly] public float planetRadius;
-        [ReadOnly] public float4 sandColor, dirtColor, waterColor, skyboxBlueDark, skyboxBlueLight, skyboxRed;
-        [ReadOnly] public int terraform;
-        [ReadOnly] public int BrushSize;
-        [ReadOnly] public VoxelWorld.VoxelType terraformType;
-        [ReadOnly] public VoxelWorld.VoxelWorldDimensions VoxWorldDims;
         void IJobParallelFor.Execute(int index)
         {
             int2 uv = to2D(index);
-            /*if (!shouldRayMarch(new uint2(uv)))
-            {
-                int leftI = math.clamp((index - 1), 0, pixels.Length - 1);
-                //int rightI = math.clamp((index + 1), 0, pixels.Length - 1);
-
-                pixels[index] = pixels[leftI];
-                return;
-            }*/
             float2 uvNorm = new float2(uv.x / (float)width, uv.y / (float)height);
-
             Ray ray = CreateCameraRay(uvNorm * 2 - 1);
-
-            RaymarchDDAResult rs = raymarchDDA(ray.origin, ray.direction, maxChunkStepCount);
-
-            float4 color = getColor(rs, ray);
-            pixels[index] = color;
-
-            if (terraform != 0)
+            RaymarchDDAResult rs = raymarchDDA(ray.origin, ray.direction, maxVoxStepCount);
+            if (!rs.miss)
             {
-                Terraform(rs.mapPos, uv, width, height);
+                voxels.Add(rs.mapPos);
             }
-        }
-
-        bool IsVoxInBounds(int3 v)
-        {
-            return v.x >= VoxWorldDims.worldLeft && v.x <= VoxWorldDims.worldRight &&
-                    v.y >= VoxWorldDims.worldBottom &&
-                    v.z >= VoxWorldDims.worldBack && v.z <= VoxWorldDims.worldFront;
-        }
-
-        void Terraform(int3 mapPos, int2 id, int width, int height)
-        {
-            if (id.x == width / 2 && id.y == height / 2)
-            {
-                for (int x = -BrushSize; x <= BrushSize; x++)
-                {
-                    for (int y = -BrushSize; y <= BrushSize; y++)
-                    {
-                        for (int z = -BrushSize; z <= BrushSize; z++)
-                        {
-                            int3 offset = new int3(x, y, z);
-                            int3 newMapPos = mapPos + offset;
-                            if (terraform == -1)
-                            {
-                                if (/*!IsVoxInBounds(newMapPos) ||*/ voxelData.ContainsKey(newMapPos)) continue;
-                                voxelData.Add(newMapPos, new VoxelWorld.VoxelData() { t = terraformType, tint = math.sin(newMapPos.x + newMapPos.y + newMapPos.z) * 0.1f });
-                                updateQueue.Add(newMapPos);
-                            }
-                            else if (terraform == 1)
-                            {
-                                if (!voxelData.ContainsKey(newMapPos)) continue;
-                                voxelData.Remove(newMapPos);
-                            }
-
-                        }
-                    }
-                }
-            }
-        }
-
-
-        bool shouldRayMarch(uint2 id)
-        {
-            if (id.x == width / 2 && id.y == height / 2) return true;
-            float off = math.distance(new int2(width / 2, height / 2), id.xy);
-            //if (off <= _BrushSize) return true;
-            bool odds = (renderOdds && !(id.x % 2 == 0 && id.y % 2 == 0));
-            bool evens = (!renderOdds && (id.x % 2 == 0 && id.y % 2 == 0));
-            return odds || evens;
-        }
-
-        float invLerp(float from, float to, float value)
-        {
-            return (value - from) / (to - from);
-        }
-
-        float4 getColor(RaymarchDDAResult res, Ray origin)
-        {
-            float4 color = new float4(0, 0, 0, 0);
-            float4 albedo = new float4(0, 0, 0, 0);
-            float4 skybox = new float4(0, 0, 0, 0);
-            float4 shadowColor = new float4(0, 0, 0, 0);
-
-            if (!res.miss && voxelData.ContainsKey(res.mapPos))
-            {
-                //float3 hitPoint = origin.origin + origin.direction * hitDis;
-                //float3 normal = math.normalize(hitPoint - float3.zero);
-                //color = new float4(normal.xyz * 0.5f + 0.5f, 1);
-                VoxelWorld.VoxelData d = voxelData[res.mapPos];
-                switch (d.t)
-                {
-                    case VoxelWorld.VoxelType.SAND:
-                        albedo = sandColor;
-                        break;
-                    case VoxelWorld.VoxelType.DIRT:
-                        albedo = dirtColor;
-                        break;
-                }
-                albedo = math.saturate(albedo + d.tint);
-                skybox = float4.zero;
-            }
-            else
-            {
-                float viewAngle = math.dot(origin.direction, new float3(0, 1, 0));
-                if (viewAngle > 0)
-                {
-                    skybox = math.lerp(skyboxBlueLight, skyboxBlueDark, viewAngle);
-                }
-                else
-                {
-                    skybox = math.lerp(skyboxBlueLight, new float4(0, 0, 0, 0), -viewAngle);
-                }
-            }
-            if (res.distThroughWater > 0)
-            {
-                albedo = waterColor + albedo * (1 - math.exp(-1f / res.distThroughWater));
-            }
-            float hitDis = res.pathLength;
-
-            if (IsInShadow(res.mapPos)) // use res.mapPos for per-vox shadows
-            {
-                shadowColor = new float4(1, 1, 1, 1) * -0.25f;
-            }
-
-            //float depth = math.exp(-1f / hitDis);
-            color = albedo + skybox + shadowColor;
-            return color;
-        }
-
-        bool IsInShadow(float3 origin)
-        {
-            Ray shadowRay = CreateRay(origin, -sunDir);
-            //float3 deltaDist = math.abs(new float3(1, 1, 1) * math.length(shadowRay.direction) / shadowRay.direction);
-            shadowRay.origin += shadowRay.direction * epsilon * 2;
-            RaymarchDDAResult res = raymarchDDA(shadowRay.origin, shadowRay.direction, maxChunkStepCount / 4, true);
-            return !res.miss;
-        }
-
-        float sdfSphere(float3 p, float3 center, float radius)
-        {
-            return math.distance(p, center) - radius;
         }
 
         int2 to2D(int index)
@@ -421,24 +292,7 @@ public class InstancedVoxelRenderer : MonoBehaviour
         #region Voxel Traversal raymarching
         bool DDAHit(int3 mapPos)
         {
-            return voxelData.ContainsKey(mapPos) && voxelData[mapPos].t != VoxelWorld.VoxelType.WATER;
-        }
-
-        bool IsWater(int3 mapPos)
-        {
-            return voxelData.ContainsKey(mapPos) && voxelData[mapPos].t == VoxelWorld.VoxelType.WATER;
-        }
-
-        bool IsVoxelInChunk(int3 vox, int3 chunk)
-        {
-            /*int3 chunkVox = chunk * chunkSize;
-            return (vox.x >= chunkVox.x && vox.x < chunkVox.x + chunkSize &&
-                    vox.y >= chunkVox.y && vox.y < chunkVox.y + chunkSize &&
-                    vox.z >= chunkVox.z && vox.z < chunkVox.z + chunkSize
-            );*/
-            int3 chunkID = vox / chunkSize;
-            bool3 eq = chunkID == chunk;
-            return eq.x && eq.y && eq.z;
+            return voxelData.ContainsKey(mapPos);
         }
 
         RaymarchDDAResult raymarchDDA(float3 o, float3 dir, int maxStepCount, bool ignoreSelf = false)
@@ -446,23 +300,22 @@ public class InstancedVoxelRenderer : MonoBehaviour
             // https://www.shadertoy.com/view/4dX3zl
             float3 p = o;
             // which box of the map we're in
-            int3 chunkSpacePos = new int3(math.floor(p)) /*/ chunkSize*/; // vox to chunk space
+            int3 mapPos = new int3(math.floor(p)) /*/ chunkSize*/; // vox to chunk space
             // length of ray from one xyz-side to another xyz-sideDist
             float3 deltaDist = math.abs(new float3(1, 1, 1) * math.length(dir) / dir);
             int3 rayStep = new int3(math.sign(dir));
             // length of ray from current position to next xyz-side
-            float3 sideDist = (math.sign(dir) * (new float3(chunkSpacePos.x, chunkSpacePos.y, chunkSpacePos.z) - o) + (math.sign(dir) * 0.5f) + 0.5f) * deltaDist;
+            float3 sideDist = (math.sign(dir) * (new float3(mapPos.x, mapPos.y, mapPos.z) - o) + (math.sign(dir) * 0.5f) + 0.5f) * deltaDist;
             bool3 mask = new bool3();
             bool hits = false;
             float pathLength = 0;
             float distThroughWater = 0;
             float disThroughChunk = 0;
-            int3 voxelMapPos = int3.zero;
             for (int i = 0; i < maxStepCount; i++)
             {
 
                 #region hit
-                if (DDAHit(chunkSpacePos))
+                if (DDAHit(mapPos))
                 {
                     hits = true;
                 }
@@ -476,7 +329,7 @@ public class InstancedVoxelRenderer : MonoBehaviour
                     {
                         pathLength = sideDist.x;
                         sideDist.x += deltaDist.x;
-                        chunkSpacePos.x += rayStep.x;
+                        mapPos.x += rayStep.x;
 
                         mask = new bool3(true, false, false);
                     }
@@ -484,7 +337,7 @@ public class InstancedVoxelRenderer : MonoBehaviour
                     {
                         pathLength = sideDist.z;
                         sideDist.z += deltaDist.z;
-                        chunkSpacePos.z += rayStep.z;
+                        mapPos.z += rayStep.z;
                         mask = new bool3(false, false, true);
                     }
                 }
@@ -494,22 +347,16 @@ public class InstancedVoxelRenderer : MonoBehaviour
                     {
                         pathLength = sideDist.y;
                         sideDist.y += deltaDist.y;
-                        chunkSpacePos.y += rayStep.y;
+                        mapPos.y += rayStep.y;
                         mask = new bool3(false, true, false);
                     }
                     else
                     {
                         pathLength = sideDist.z;
                         sideDist.z += deltaDist.z;
-                        chunkSpacePos.z += rayStep.z;
+                        mapPos.z += rayStep.z;
                         mask = new bool3(false, false, true);
                     }
-                }
-                if (IsWater(chunkSpacePos))
-                {
-                    if (mask.x) distThroughWater += deltaDist.x;
-                    if (mask.y) distThroughWater += deltaDist.y;
-                    if (mask.z) distThroughWater += deltaDist.z;
                 }
                 #endregion
 
@@ -521,7 +368,7 @@ public class InstancedVoxelRenderer : MonoBehaviour
 
             RaymarchDDAResult result = new RaymarchDDAResult()
             {
-                mapPos = chunkSpacePos,
+                mapPos = mapPos,
                 miss = !hits,
                 pathLength = pathLength + disThroughChunk,
                 distThroughWater = distThroughWater,
