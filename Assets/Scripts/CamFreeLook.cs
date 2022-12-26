@@ -34,10 +34,10 @@ public class CamFreeLook : MonoBehaviour
         transform.rotation = Quaternion.Euler(-pitch, yaw, 0);
 
         // Move
-        //velocity = transform.forward * Input.GetAxis("Vertical") + transform.right * Input.GetAxis("Horizontal");
-        //velocity *= moveSpeed;
-        //transform.Translate(velocity * Time.deltaTime);
-        /*transform.position += transform.forward * moveSpeed * Time.deltaTime * Input.GetAxis("Vertical") + 
-                               transform.right * moveSpeed * Time.deltaTime * Input.GetAxis("Horizontal");*/
+        velocity = transform.forward * Input.GetAxis("Vertical") + transform.right * Input.GetAxis("Horizontal");
+        velocity *= moveSpeed;
+        transform.Translate(velocity * Time.deltaTime);
+        transform.position += transform.forward * moveSpeed * Time.deltaTime * Input.GetAxis("Vertical") + 
+                               transform.right * moveSpeed * Time.deltaTime * Input.GetAxis("Horizontal");
     }
 }
